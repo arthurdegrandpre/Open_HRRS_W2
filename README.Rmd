@@ -37,3 +37,12 @@ At this moment, functionnal steps include :
 - 
 
 ## Roadmap
+
+## Credits
+
+Author: Arthur de Grandpre
+Supervised by: Pr Andrea Bertolo (UQTR), Pr Christophe Kinnard (UQTR)
+Collaboration of: 
+
+Dependant on (libraries and applications)
+Financed by (ÉcoLac & CEGRIM)

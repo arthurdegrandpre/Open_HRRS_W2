@@ -1,0 +1,122 @@
+---
+title: "01_metadata_extraction"
+author: "Arthur"
+date: "28 février 2020"
+output: html_document
+---
+
+This first script is used to extract and validate metadata from high resolution images. It is adapted to the datastructure of DigitalGlobe products, including Quickbird and Worlview-02, 03 & 04
+
+```{r setup}
+rm(list=ls()) # clean R environment
+library(sf) # for spatial simple feature objects
+library(raster) # for spatial raster data
+library(tidyverse) # for tidy data handling 
+library(ggplot2) # for easy data plotting
+library(leaflet) # for interactive maps
+library(mapview) # for better interactive maps 
+```
+
+
+# What data do we have?
+
+The first step is to catalogue everything that we got and determine how to read it efficiently. The directory has to be changed to a directory containing all the files to explore.
+
+```{r finding images}
+imgs_dir = "//Glaciolab/homes/degranda/MFFP" # directory of all satellite images
+
+#### extract date & type from the name ####
+imgs = as.data.frame(dir(imgs_dir, recursive = T, pattern = ".TIF$")) # creates a dataframe of all image names 
+imgs = imgs %>%
+  mutate(date = lubridate::ymd_hms(str_match(imgs[,1], ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3]))
+imgs_MUL = imgs %>% 
+  filter(str_detect(imgs[,1], "_MUL"))
+imgs_PAN = imgs %>% 
+  filter(str_detect(imgs[,1], "_PAN"))
+```
+
+## Multispectral images
+
+Let's see what kind of data is contained in the MUL images.
+
+```{r MUL formats, results= "hide"}
+MUL_summary=tibble()
+for(i in 1:length(imgs_MUL$value)){
+  r = brick(paste0(imgs_dir,"/",imgs_MUL$value[i]))
+  r_summary = cbind(print(res(r)[1]),print(nlayers(r)),print(crs(r)),print(imgs_MUL[i,]))
+  MUL_summary = rbind(MUL_summary,r_summary)
+}
+colnames(MUL_summary) = c("res","nlayers","crs","img","date")
+MUL_summary = as.tibble(MUL_summary)
+```
+
+```{r print MUL formats}
+print(tbl_df(MUL_summary), n=Inf)
+```
+
+We seem to have the same CRS information for all archive data, but a longlat projection for the new acquisitions. 
+  
+The number of bands and their resolution is also variable from **4 to 8 bands**, going from **1.2 to 2.4 meters** in the archives, and 1.8e-5 degrees in the new acquisitions.  
+  
+The time of capture is always between 16:00 and 16:40 GMT, which means **11:00 to 11:40 local time**.  
+  
+The date ranges from **2009 to 2019**.  
+  
+Let's see how this translates in the data by visualising data from each group  
+**(archive and new acquisitions will be treated separately)**
+
+### wv3 MUL 8b 1.2m
+
+```{r wv3 MUL 8b 1.2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL$value[1]))
+r[r==0] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("b1","b2","b3","b4","b5","b6","b7","b8") # name the bands
+plot(r) # display the data
+```
+
+It seems some of the bands have weird values (>255) and some linear artefacts (b3 and b5).  
+
+### wv2 MUL 8b 2m
+
+```{r wv2 MUL 8b 2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL$value[6]))
+r[r==0] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("b1","b2","b3","b4","b5","b6","b7","b8") # name the bands
+plot(r) # display the data
+```
+
+### qb2 MUL 4b 2.4m
+
+```{r qb2 MUL 4b 2.4m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL$value[29]))
+r[r==0] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("b1","b2","b3","b4") # name the bands
+plot(r) # display the data
+```
+
+### wv4 MUL 4b 1.2m
+
+```{r wv4 MUL 4b 1.2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL$value[30]))
+r[r==0] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("b1","b2","b3","b4") # name the bands
+plot(r) # display the data
+```
+
+### wv3 MUL 8b lat/long 
+
+```{r wv3 MUL 8b lat/long}
+r = brick(paste0(imgs_dir,"/",imgs_MUL$value[36]))
+#r[r==0] = NA # make 0s into NA
+#r = trim(r) # adjusts the extent
+names(r) = c("b1","b2","b3","b4","b5","b6","b7","b8") # name the bands
+plot(r) # display the data
+r2 = projectRaster(r, crs="+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+plot(r2)
+r
+r2
+```
