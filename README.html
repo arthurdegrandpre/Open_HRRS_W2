@@ -135,7 +135,7 @@ It relies heavily on object based image analysis methods, such as feature extrac
 <div id="requirements" class="section level2">
 <h2>Requirements</h2>
 <p>High resolution multiband raster images are quite heavy and can require large volumes of storage, aswell as high amounts of RAM.<br />
-While storage use is dependant on the amount and size of the images, being able to work with about <strong>500Gb to 1Tb</strong> free space can reduce issues associated with temporary files.<br />
+While storage use is dependant on the amount and size of the images, being able to work with about <strong>500Gb to 1Tb free space</strong> can reduce issues associated with temporary files.<br />
 <strong>Recommended RAM is 32Gb</strong>. We <em>have</em> had issues with systems using 16Gb.<br />
 A functionnal installation of <strong>Orfeo-Toolbox</strong> is required to call the Segmentation and feature extraction functions. We recommend version 7.0.0 or over.<br />
 Finally, the workflow is coded in R language, using Rmarkdown notebooks for annotation and visualisation. It is thus required to have an up-to-date version of <strong>R and RStudio</strong> in order to run the script efficiently.</p>
@@ -144,7 +144,18 @@ Finally, the workflow is coded in R language, using Rmarkdown notebooks for anno
 <h2>Instructions</h2>
 <p>The workflow includes many steps, some of which are not yet functionnal.<br />
 All steps will be contained within their own Rmarkdown script (.Rmd), and accompanied by a standalone html file for easier reading, and another .md file for displaying the code on the online github repository.</p>
-<p>At this moment, functionnal steps include :</p>
+<p>Steps are numbered in the order they have to be executed.<br />
+Simply open the R project located in the main directory, then the scripts for each step via their .Rmd file.<br />
+First code chunks for each step include a clean-up of the R environment and the loading of all required libraries.<br />
+All libraries MUST be installed before loading them. To prevent involountary updates, please install them <strong>only</strong> if necessary using the <strong>install.packages(“package_name_here”)</strong> function.</p>
+<p>In order for each step to run smoothly, many intermediate files are created across the workflow. Posteriori clean-up might be beneficial.</p>
+<p>If you encounter major issues, please add an issue to the online github repository page in the issues section and/or contact Arthur de Grandpre at <a href="mailto:arthur.de.grandpre@uqtr.ca">arthur.de.grandpre@uqtr.ca</a>.</p>
+</div>
+<div id="state-of-the-workflow" class="section level2">
+<h2>State of the workflow</h2>
+</div>
+<div id="at-this-moment-functionnal-steps-include" class="section level2">
+<h2>At this moment, functionnal steps include :</h2>
 </div>
 <div id="roadmap" class="section level2">
 <h2>Roadmap</h2>
