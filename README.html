@@ -9,7 +9,7 @@
 <meta name="generator" content="pandoc" />
 
 
-<meta name="author" content="Arthur de Grandpré" />
+<meta name="author" content="Arthur de Grandpré, UQTR" />
 
 
 <title>README</title>
@@ -122,13 +122,34 @@ $(document).ready(function () {
 
 
 <h1 class="title toc-ignore">README</h1>
-<h4 class="author"><em>Arthur de Grandpré</em></h4>
+<h4 class="author"><em>Arthur de Grandpré, UQTR</em></h4>
 <h4 class="date"><em>28 février 2020</em></h4>
 
 </div>
 
 
-<p>This repository aims to provide an open-source based high resolution remote sensing workflow for vegetation mapping in optically shallow waters.</p>
+<div id="open_hrrs_w2" class="section level1">
+<h1>Open_HRRS_W2</h1>
+<p>This repository aims to provide an open-source based high resolution remote sensing workflow for vegetation mapping in optically shallow waters.<br />
+It relies heavily on object based image analysis methods, such as feature extraction and image segmentation, which are provided by <strong>Orfeo-Toolbox</strong>.</p>
+<div id="requirements" class="section level2">
+<h2>Requirements</h2>
+<p>High resolution multiband raster images are quite heavy and can require large volumes of storage, aswell as high amounts of RAM.<br />
+While storage use is dependant on the amount and size of the images, being able to work with about 500Gb to 1Tb free space can reduce issues associated with temporary files.<br />
+Recommended RAM is 32Gb. We <em>have</em> had issues with systems using 16Gb.<br />
+A functionnal installation of <strong>Orfeo-Toolbox</strong> is required to call the Segmentation and feature extraction functions. We recommend version 7.0.0 or over.<br />
+Finally, the workflow is coded in R language, using Rmarkdown notebooks for annotation and visualisation. It is thus required to have an up-to-date version of R and RStudio in order to <strong>run</strong> the script efficiently.</p>
+</div>
+<div id="instructions" class="section level2">
+<h2>Instructions</h2>
+<p>The workflow includes many steps, some of which are not yet functionnal.<br />
+All steps will be contained within their own Rmarkdown script (.Rmd), and accompanied by a standalone html file for easier reading, and another .md file for displaying the code on the online github repository.</p>
+<p>At this moment, functionnal steps include :</p>
+</div>
+<div id="roadmap" class="section level2">
+<h2>Roadmap</h2>
+</div>
+</div>
 
 
 
