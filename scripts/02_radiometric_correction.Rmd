@@ -144,7 +144,7 @@ writeRaster(r3,paste0(pan_toa_output, as.Date(rctx$date[1]),"_PAN_",rctx$sats[1]
 Let's visualize the first layer of every product to understand the difference between them. At this stage, scenes from different satellites should be comparable in their value range.
 
 ```{r}
- plot(r[[1]], main="DN"); plot(r2[[1]],main="ARC"); plot(r3[[1]],main="TOA")
+ plot(r[[1]], main="DN"); plot(r2[[1]], main="ARC"); plot(r3[[1]],main="TOA")
  hist(r[[1]], main="DN"); hist(r2[[1]], main="ARC"); hist(r3[[1]],main="TOA")
 ```
 
@@ -157,31 +157,42 @@ Let's visualize the first layer of every product to understand the difference be
 mul_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/" # PATH TO TOA OUTPUT
 
 for(i in seq_along(mul$X)){
+  print(paste0("image ",i,"/",length(mul$X)))
 
-print(paste0(i,"/",length(mul$X))) # to track progress
-  
-img = pan[i,] # subset to one image
-r = brick(paste0(img$path)) # load image into R raster
-r[r<1]=NA # make 0s into NA
+   img = mul[i,]
+   r = brick(paste0(img$path))
+   r[r<1]=NA
+   
+   rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
+   rctx1 = subset(rctx1, rctx1$bands!="P")
 
-rctx = subset(rct, rct$id_part==img$id_part)
+   bands_order = c("C","B","G","Y","R","RE","N1","N")
+   rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
 
-#### absolute radiometric correction ####
-r2 = rctx$gain*r*(rctx$abscalfactor/rctx$effectivebandwidth)+rctx$offset # absolute radiometric calibration
+   r2=r
 
+for(b in 1:length(rctx$bands)){
+    print(paste0("band ",b,"/",length(rctx$bands)))
+
+#### Absolute radiometric correction ####
+
+r2[[b]] = rctx$gain[b]*r[[b]]*(rctx$abscalfactor[b]/rctx$effectivebandwidth[b])+rctx$offset[b]
+print("ARC")
+# TOA ######################
+
+r3 = (r2*(calcEarthSunDist(rctx$date[b])^2)*pi) / # this gives TOA
+  (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3)* #cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
+     cos(rctx$solar_zenith[b]*pi/180))
+print("TOA")
+}
+   
 #### NOTE : the following line can be used to write the absolute radiometric calibration product, if needed
- # writeRaster(r2,paste0(pan_arc_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
-
-#### TOA ####
-
-r3 = (r2*(calcEarthSunDist(rctx$date)^2)*pi) /
-  ((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * 
-          cos(rctx$solar_zenith*pi/180)) # using metadata
+# writeRaster(r2,paste0(mul_arc_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
 
 writeRaster(r3,paste0(mul_toa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
- }
-
+}
 ```
+
 
 Let's visualize the first layer of every product to understand the difference between them. At this stage, scenes from different satellites should be comparable in their value range.
 
