@@ -1,0 +1,261 @@
+---
+title: "01_metadata_extraction"
+author: "Arthur de Grandpré, UQTR @ arthur.de.grandpre@uqtr.ca"
+date: "28 février 2020"
+output: 
+  html_document: 
+    keep_md: yes
+    toc: yes
+    toc_float: yes
+---
+
+This first script is used to extract and validate metadata from high resolution images. It is adapted to the datastructure of DigitalGlobe products, including Quickbird and Worlview-02, 03 & 04
+
+# R setup
+
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function
+
+```{r setup, message=F, warning=F}
+
+# install.packages("raster") # exemple
+
+rm(list=ls()) # clean R environment
+library(sf) # for spatial simple feature objects
+library(raster) # for spatial raster data
+library(tidyverse) # for tidy data handling 
+library(ggplot2) # for easy data plotting
+library(leaflet) # for interactive maps
+library(mapview) # for better interactive maps 
+library(data.table) # for %like% function
+library(kableExtra)
+```
+
+
+# What data do we have?
+
+The first step is to catalogue everything that we got and determine how to read it efficiently. The directory has to be changed to a directory containing all the files to explore.
+
+```{r finding images}
+imgs_dir = "X:/MFFP" # directory containg all satellite images (can be in different folders, to be found with recursive search)
+
+#### extract date and type from the name ####
+imgs = as.data.frame(dir(imgs_dir, recursive = T, pattern = ".TIF$")) # creates a dataframe of all image names 
+imgs = imgs %>%
+  mutate(date = lubridate::ymd_hms(str_match(imgs[,1], ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3]))
+imgs_MUL = imgs %>% 
+  filter(str_detect(imgs[,1], "_MUL"))
+imgs_PAN = imgs %>% 
+  filter(str_detect(imgs[,1], "_PAN"))
+```
+
+## Multispectral images overview
+
+Let's see what kind of data is contained in the multispectral (MUL) images.
+
+```{r MUL formats, results= "hide"}
+MUL_summary=tibble() # creates an empty tibble (dataframe)
+for(i in 1:length(imgs_MUL[,1])){ # fills the tibble with information from the raster, including resolution and number of layers
+  r = brick(paste0(imgs_dir,"/",imgs_MUL[,1][i])) # creates the raster bricks
+  r_summary = cbind(print(res(r)[1]),print(nlayers(r)),print(crs(r)),print(imgs_MUL[i,]))
+  MUL_summary = rbind(MUL_summary,r_summary)
+}
+
+colnames(MUL_summary) = c("res","nlayers","crs","path","date") # changes the variable names
+
+MUL_summary = MUL_summary %>%  # adds information concerning the product ID from it's name.
+  mutate(part = str_match(MUL_summary$path, ".*_01_(.*).TIF")[,2]) %>% 
+  mutate(id = str_match(MUL_summary$path, ".*AS(_....-|-)(.*)_P")[,3]) %>% 
+  mutate(id_part = paste0(id,"_",part))
+
+MUL_summary = as.tibble(MUL_summary)
+```
+
+```{r print MUL formats}
+kable(MUL_summary) %>% 
+  kable_styling() %>% 
+  scroll_box(width="600px",height="500px")
+write.csv(MUL_summary, "../data/multispectral_summary.csv") # writes the table in the data folder
+```
+
+We seem to have the same CRS information for all archive data, but a longlat projection for the new acquisitions. 
+  
+The number of bands and their resolution is also variable from **4 to 8 bands**, going from **1.2 to 2.4 meters** in the archives, and 1.8e-5 degrees in the new acquisitions.  
+  
+The time of capture is always between 16:00 and 16:40 GMT, which means **11:00 to 11:40 local time**.  
+  
+The date ranges from **2009 to 2019**.  
+
+
+### Panchromatic images overview
+
+The same methods will be applied to panchromatic images in order to obtain the same metadata.
+
+```{r PAN formats, results= "hide"}
+PAN_summary=tibble() # creates an empty tibble (dataframe)
+for(i in 1:length(imgs_PAN[,1])){ # fills the tibble with information from the raster, including resolution and number of layers
+  r = brick(paste0(imgs_dir,"/",imgs_PAN[,1][i])) # creates the raster bricks
+  r_summary = cbind(print(res(r)[1]),print(nlayers(r)),print(crs(r)),print(imgs_PAN[i,]))
+  PAN_summary = rbind(PAN_summary,r_summary)
+}
+
+colnames(PAN_summary) = c("res","nlayers","crs","path","date") # changes the variable names
+
+PAN_summary = PAN_summary %>%  # adds information concerning the product ID from it's name.
+  mutate(part = str_match(PAN_summary$path, ".*_01_(.*).TIF")[,2]) %>% 
+  mutate(id = str_match(PAN_summary$path, ".*AS(_....-|-)(.*)_P")[,3]) %>% 
+  mutate(id_part = paste0(id,"_",part))
+
+PAN_summary = as.tibble(PAN_summary)
+```
+
+```{r print PAN formats}
+kable(PAN_summary) %>% 
+  kable_styling() %>% 
+  scroll_box(width="600px",height="500px")
+write.csv(PAN_summary, "../data/panchromatic_summary.csv") # writes the table in the data folder
+```
+
+### Products summary
+
+Let's merge some information from both overviews to make a more synthetic table
+
+```{r}
+summary_df = cbind(PAN_summary$id_part,as.character(PAN_summary$date),PAN_summary$res,MUL_summary$res,MUL_summary$nlayers, as.character(MUL_summary$crs))
+
+colnames(summary_df) = c("id","date","pan_res","mul_res","mul_bands","crs")
+
+kable(summary_df) %>% 
+  kable_styling() %>% 
+  scroll_box(width="600px",height="500px")
+write.csv(summary_df, "../data/images_summary.csv")
+```
+
+
+## Metadata parsing
+
+Let's parse the .IMD files of those images to get additionnal metadata of interest for radiometric calibration and atmospheric correction. Both multispectral and panchromatic images will be treated at the same time.
+
+```{r imd parsing}
+imds = as.tibble(dir(imgs_dir, recursive = T, pattern = ".IMD$", full.names=T)) # finds all .IMD files
+imds = imds %>%  # obtain date and product information
+  mutate(date = lubridate::ymd_hms(str_match(imds$value, ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3])) %>% 
+  mutate(part = str_match(imds$value, ".*_01_(.*).IMD")[,2]) %>% 
+  mutate(id = str_match(imds$value, ".*AS-(.*)_P")[,2]) %>% 
+  mutate(id_part = paste0(id,"_",part))
+
+radiometric_calibration_parameters = data.frame() # dataframe to fill with calibration parameters
+
+for(i in 1:length(imds$value)){ # for every IMD files
+imdx = as.tibble(read.csv(paste0(imds$value[i]), sep="=", head=F)) # read as csv
+
+bands = gsub("BAND_","", droplevels( # find band IDs
+  subset(imdx, imdx$V1 %like% "BEGIN" & imdx$V2 %like% "BAND" )$V2
+))
+
+abscalfactor = as.numeric( # find their abscalfactor
+  gsub(";","", droplevels(
+  subset(imdx, imdx$V1 %like% "absCalFactor")$V2
+)))
+
+effectivebandwidth = as.numeric( # find their effective bandwidth
+  gsub(";","", droplevels(
+  subset(imdx, imdx$V1 %like% "effectiveBandwidth")$V2
+)))
+
+solar_zenith = 90-as.numeric( # define solar zenith angle based on mean sun elevation angle
+  gsub(";","", droplevels(
+    subset(imdx, imdx$V1 %like% "meanSunEl")$V2
+)))
+
+sats = as.character( # define satellite name
+  gsub(";","", droplevels(
+    subset(imdx, imdx$V1 %like% "satId")$V2
+)))
+
+view_angle = 90-as.numeric( # define satellite viewing angle base on mean satellite elevation angle
+  gsub(";","", droplevels(
+    subset(imdx, imdx$V1 %like% "meanSatEl")$V2
+)))
+
+id_part = imds$id_part[i] # identify the part
+
+imdx_params = tibble(bands,abscalfactor, effectivebandwidth, id_part, solar_zenith, sats, view_angle) # make a dataframe
+imdx_params$date = imds$date[i] # add the date
+
+radiometric_calibration_parameters = rbind(radiometric_calibration_parameters, imdx_params) # add to the table
+}
+```
+
+```{r write MUL rcp}
+kable(radiometric_calibration_parameters) %>% 
+  kable_styling() %>% 
+  scroll_box(width="600px",height="500px")
+
+write.csv(MUL_summary, "../data/MUL_radiometric_calibration_parameters.csv") # writes the table in the data folder
+```
+
+## MUL Visualisation  (data specific CEGRIM)
+Let's visualize the data contained inside the raw rasters by visualising one raster image from each group  
+**(archive and new acquisitions will be treated separately)**
+
+### wv3 MUL 8b 1.2m
+
+```{r wv3 MUL 8b 1.2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL[1,1]))
+values(r)[values(r) < 1] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("C","B","G","Y","R","RE","N1","N") # name the bands
+plot(r) # display the data
+```
+
+### wv2 MUL 8b 2m
+
+```{r wv2 MUL 8b 2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL[6,1]))
+values(r)[values(r) < 1] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("C","B","G","Y","R","RE","N1","N") # name the bands
+plot(r) # display the data
+```
+
+### qb2 MUL 4b 2.4m
+
+```{r qb2 MUL 4b 2.4m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL[29,1]))
+values(r)[values(r) < 1] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("B","G","R","N") # name the bands
+plot(r) # display the data
+```
+
+### wv4 MUL 4b 1.2m
+
+```{r wv4 MUL 4b 1.2m}
+r = brick(paste0(imgs_dir,"/",imgs_MUL[30,1]))
+r[r==0] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("B","G","R","N") # name the bands
+plot(r) # display the data
+```
+
+### wv3 MUL 8b lat/long 
+
+```{r wv3 MUL 8b lat/long}
+r = brick(paste0(imgs_dir,"/",imgs_MUL[36,1]))
+values(r)[values(r) < 1] = NA # make 0s into NA
+r = trim(r) # adjusts the extent
+names(r) = c("C","B","G","Y","R","RE","N1","N") # name the bands
+plot(r) # display the data
+r2 = projectRaster(r, crs="+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+plot(r2)
+r
+r2
+```
+
+Values are expressed in *digital numbers (DN)* which do not reflect precise radiometrics measurements. They **must be transformed into radiometric units** by absolute radiometric calibration (step 02).
+
+The use of projectRaster seems to create some distortion within lat/lon images. lat and lon degrees not being of equal length, the scaling of the resolution generates uneven pixels. Expected resolution would be 1.24m x 1.24m (as opposed to 1.41m x 2m) according to *Worldview-3* documentation. It is possible to apply a resampling during projection using nearest neighbors method, but that would increase error within the image.
+
+
+## PAN visualisation
+(will not be previewed to make the html output lighter. basic R plots won't allow high enough resolution to appreciate the resolution gain)

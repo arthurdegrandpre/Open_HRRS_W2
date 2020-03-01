@@ -1,0 +1,73 @@
+"","id","date","pan_res","mul_res","mul_bands","crs"
+"1","010623053010_01_P001","2017-08-11 16:13:17","0.299999999999997","1.19999999999999","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"2","010623053010_01_P001","2017-08-11 16:13:17","0.299999999999997","1.19999999999999","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"3","010623053010_01_P001","2017-08-11 16:13:17","0.300000000000016","1.2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"4","010623053010_01_P001","2017-08-11 16:13:17","0.299999999999997","1.19999999999999","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"5","010623053010_01_P001","2017-08-11 16:13:17","0.300000000000004","1.19999999999998","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"6","010623053020_01_P001","2016-09-05 16:20:24","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"7","010623053020_01_P001","2016-09-05 16:20:24","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"8","010623053020_01_P002","2016-09-05 16:20:48","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"9","010623053020_01_P002","2016-09-05 16:20:48","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"10","010623053020_01_P002","2016-09-05 16:20:48","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"11","010623053030_01_P001","2016-09-05 16:20:47","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"12","010623053030_01_P001","2016-09-05 16:20:47","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"13","010623053030_01_P002","2016-09-05 16:20:24","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"14","010623053030_01_P002","2016-09-05 16:20:24","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"15","010623053030_01_P002","2016-09-05 16:20:24","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"16","010623053040_01_P001","2013-08-17 16:39:51","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"17","010623053040_01_P001","2013-08-17 16:39:51","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"18","010623053040_01_P001","2013-08-17 16:39:51","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"19","010623053040_01_P002","2013-08-17 16:39:27","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"20","010623053040_01_P002","2013-08-17 16:39:27","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"21","010623053050_01_P001","2013-08-17 16:39:50","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"22","010623053050_01_P002","2013-08-17 16:39:28","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"23","010623053050_01_P002","2013-08-17 16:39:28","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"24","010623053050_01_P002","2013-08-17 16:39:28","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"25","010623053060_01_P001","2012-07-12 16:21:47","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"26","010623053070_01_P001","2011-06-03 16:04:59","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"27","010623053070_01_P001","2011-06-03 16:04:59","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"28","010623053070_01_P001","2011-06-03 16:04:59","0.5","2","8","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"29","010623053080_01_P001","2009-09-05 15:50:38","0.600000000000001","2.4","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"30","010629903010_01_P001","2018-08-24 16:01:35","0.299999999999995","1.2","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"31","010629903010_01_P002","2018-08-24 16:01:06","0.299999999999997","1.19999999999999","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"32","010629903010_01_P002","2018-08-24 16:01:06","0.299999999999997","1.19999999999999","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"33","010629903010_01_P002","2018-08-24 16:01:06","0.300000000000008","1.20000000000003","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"34","010629903010_01_P002","2018-08-24 16:01:06","0.299999999999997","1.19999999999999","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"35","010629903010_01_P002","2018-08-24 16:01:06","0.3","1.20000000000002","4","+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +ellps=WGS84
++towgs84=0,0,0"
+"36","010577871010_01_P001","2019-08-02 16:12:16","4.49999999999997e-06","1.79999999999999e-05","8","+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+"37","010577871010_01_P002","2019-08-02 16:12:28","4.50000000000032e-06","1.80000000000013e-05","8","+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
