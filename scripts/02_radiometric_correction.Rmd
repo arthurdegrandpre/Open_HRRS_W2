@@ -12,207 +12,86 @@ output:
 This second script is used to go from digital number pixel values to bottom of atmosphere spectral radiance based on the image metadata extracted in the first script and calibration data from DigitalGlobe. It is adapted to the datastructure of DigitalGlobe products, including Quickbird and Worlview-02, 03 & 04.
 
 # R setup
+
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function.
+
+**important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
+
 ```{r setup, message=F, warning=F}
 rm(list=ls())
 library(sf)
 library(raster)
 library(tidyverse)
-library(ggplot2)
-library(leaflet)
-library(mapview)
 library(data.table)
 library(satellite)
 library(GeoLight)
 library(sp)
+library(stringr)
 # library(doParallel) # could be added at some point to speedup the process
 # library(foreach) # could be added at some point to speedup the process
+
+# raster options
+rasterOptions(todisk=T) # forces on disk writing instead of in memory
+rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
+
 ```
 
-# Absolute radiometric calibration
+# Absolute radiometric calibration & TOA transformation
 
 This step is detailed in DigitalGlobe's technical notes for radiometric use of worldview-02 and worldview-03 products, available in the documentation subfolder of this repository.
   
 All parameters required for radiometric calibration have been compiled in a file and stored into the data subfolder (gain_offset_table_exo.csv), or extracted from the metadata in step 01.  
   
 The given equation to do so is $$L =  GAIN * DN * (\frac{abscalfactor}{effectivebandwith})+OFFSET$$ 
-
+  
 Where $$L$$ is the at sensor radiance in units of W·sr−1·m−2·nm−1 (watt per steradian per square metre per nanometre)  
   
 GAIN is the gain parameter specific to the band and satellite, as obtained from DigitalGlobe  
-
+  
 DN is the raw pixel value for a given band in the original product  
-
+  
 OFFSET is the offset parameter specific to the band and satellite, as obtained from DigitalGlobe  
-
+  
 abscalfactor is the absolute calibration factor parameter specific to the band, satellite and scene, as retrieved from each image's metadata.  
-
+  
 effectivebandwith is the actual effective wavelength sensibility range of every band, satellite and scene, as retrieved from each image's metadata.
+  
+  
+  Once at sensor radiance is obtained, it is possible to transform it into top-of-atmosphere radiance, by the equation given within the technical notes of DigitalGlobe that goes as follow : 
+  
+  $$\rho(TOA)_\lambda = \frac{L_\lambda*d^2*\pi}{E_\lambda*cos(\theta_S)} $$
+
+Where $\rho(TOA)_\lambda$ is the top of atmosphere reflectance,  
+  
+  $L_\lambda$ is the at sensor radiance (previously calculated),  
+  
+  $d^2$ is the squared distance between the earth and the sun in astronomical units
+  
+  $E_\lambda$ is the exoatmospheric radiance (obtained from digitalglobe in 3 different values, but here the mean will be used)
+  
+  $cos(\theta_S)$ is the cosine of the solar zenith angle
+  
+## data preparation for calibration
+
+Let's read the data necessary for calibration
 
 ```{r read data}
 DG_param = read.csv("./data/gain_offset_table_exo.csv", sep=";",header=T)
-rcp = read.csv("./data/MUL_summary.csv")
-
+rcp = read.csv("./data/radiometric_calibration_parameters.csv")
+mul = read.csv("./data/multispectral_summary.csv")
+pan = read.csv("./data/panchromatic_summary.csv")
 ```
 
+Let's merge digitalglobe's parameters with our metadata information. Mean orbit altitude will also be added since it was not included in previous references.
 
-# top of atmosphere reflectance
+```{r merge data}
+DG_param$bands = gsub(" ","",DG_param$bands) # makes sure the are no useless spaces in strings
+DG_param$sats = gsub(" ","",DG_param$sats) # makes sure the are no useless spaces in strings
 
+rcp$sats = gsub(" ","",rcp$sats) # makes sure the are no useless spaces in strings
+rcp$bands = gsub(" ","",rcp$bands) # makes sure the are no useless spaces in strings
 
-
-# bottom of atmosphere reflectance
-
-
-This script is based on the technical note for radiometric use of worldview-3 available at :   
-https://dg-cms-uploads-production.s3.amazonaws.com/uploads/document/file/207/Radiometric_Use_of_WorldView-3_v2.pdf   
-  
-
-
-The given equation to do so is $$L =  GAIN * DN * (\frac{abscalfactor}{effectivebandwith})+OFFSET$$  
-In this equation, the GAIN and OFFSET parameters are contained within /hrrs_macrophytes/documentation/ABSRADCAL_FEET_2016v0_Rel20170606.pdf and the abscalfactor and effectivebandwith in the .IMD files of the given image, with one value for everyband.
-
-# compiling parameters
-```{r setup}
-rm(list=ls())
-library(sf)
-library(raster)
-library(tidyverse)
-library(ggplot2)
-library(leaflet)
-library(mapview)
-library(data.table)
-library(satellite)
-library(GeoLight)
-library(sp)
-library(doParallel)
-library(foreach)
-
-
-```
-
-```{r finding images}
-imgs_dir = "//Glaciolab/homes/degranda/MFFP"
-imgs = as_tibble(dir(imgs_dir, recursive = T, pattern = ".TIF$", full.names=T))
-
-imgs = imgs %>%
-  mutate(date = lubridate::ymd_hms(str_match(imgs$value, ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3]))
-imgs_MUL = imgs %>%
-  filter(str_detect(value, "_MUL"))
-imgs_PAN = imgs %>% 
-  filter(str_detect(value, "_PAN"))
-
-```
-
-We now have a list of all .TIF images recieved in MUL and PAN formats
-
-```{r abscalfactor and effectivebandwidth}
-imds = as.tibble(dir(imgs_dir, recursive = T, pattern = ".IMD$", full.names=T))
-imds = imds %>% 
-  mutate(date = lubridate::ymd_hms(str_match(imds$value, ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3])) %>% 
-  mutate(part = str_match(imds$value, ".*_01_(.*).IMD")[,2]) %>% 
-  mutate(id = str_match(imds$value, ".*AS-(.*)_P")[,2]) %>% 
-  mutate(id_part = paste0(id,"_",part))
-
-radiometric_calibration_parameters = data.frame() # dataframe to fill with calibration parameters
-
-for(i in 1:length(imds$value)){ # for every IMD files
-imdx = as.tibble(read.csv(paste0(imds$value[i]), sep="=", head=F)) # read as csv
-
-bands = gsub("BAND_","", droplevels( # find band IDs
-  subset(imdx, imdx$V1 %like% "BEGIN" & imdx$V2 %like% "BAND" )$V2
-))
-
-abscalfactor = as.numeric( # find their abscalfactor
-  gsub(";","", droplevels(
-  subset(imdx, imdx$V1 %like% "absCalFactor")$V2
-)))
-
-effectivebandwidth = as.numeric( # find their effective bandwidth
-  gsub(";","", droplevels(
-  subset(imdx, imdx$V1 %like% "effectiveBandwidth")$V2
-)))
-
-ULLon = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "ULLon")$V2
-)))
-
-ULLat = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "ULLat")$V2
-)))
-
-URLon = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "URLon")$V2
-)))
-
-URLat = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "URLat")$V2
-)))
-
-
-LLLon = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "LLLon")$V2
-)))
-
-LLLat = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "LLLat")$V2
-)))
-
-LRLon = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "LRLon")$V2
-)))
-
-LRLat = as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "LRLat")$V2
-)))
-
-solar_zenith = 90-as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "meanSunEl")$V2
-)))
-
-sats = as.character(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "satId")$V2
-)))
-
-view_angle = 90-as.numeric(
-  gsub(";","", droplevels(
-    subset(imdx, imdx$V1 %like% "meanSatEl")$V2
-)))
-
-
-id_part = imds$id_part[i] # identify the passage
-
-imdx_params = tibble(bands,abscalfactor, effectivebandwidth, id_part, ULLon, ULLat, URLon, URLat, LLLon, LLLat, LRLon, LRLat, solar_zenith, sats, view_angle) # make a dataframe
-imdx_params$date = imds$date[i] # add the date
-# 
-# rpbx = as.tibble(read.csv(paste0(rpbs$value[i]), sep="=", head=F))
-# sats = gsub(";","",rpbx$V2[1]) # add the satellite ID
-# 
-# imdx_params$sats = sats
-
-radiometric_calibration_parameters = rbind(radiometric_calibration_parameters, imdx_params) # add to the table
-}
-
-```
-
-
-```{r}
-got = read.csv("../results/gain_offset_table_exo.csv", sep=";") # contains digitalglobe's calibration info
-got$bands = gsub(" ","",got$bands)
-got$sats = gsub(" ","",got$sats)
-rcp = radiometric_calibration_parameters
-rcp$sats = gsub(" ","",rcp$sats)
-rcp$bands = gsub(" ","",rcp$bands)
-
-rct = merge(rcp,got,all=T) # radiometric correction table
+rct = merge(rcp,DG_param,all=T) # radiometric correction table
 
 # add satellite altitude
 
@@ -222,221 +101,92 @@ esd = data.frame(sats,alt_m)
 
 rct = merge(rct, esd)
 
-write.csv(rct, "../results/radiometric_correction_table.csv")
+write.csv(rct, "./data/radiometric_correction_table.csv")
 ```
 
-# applying radiometric calibration
+## radiometric calibration and top of atmosphere reflectance transformation
 
-equation : $$L =  GAIN * DN * (\frac{abscalfactor}{effectivebandwith})+OFFSET$$  
-
-```{r}
-rm(list=ls()) ; gc()
-
-rct = read.csv("../results/radiometric_correction_table.csv")
-rct$date=lubridate::ymd_hms(rct$date)
-
-imgs_dir = "//Glaciolab/homes/degranda/MFFP"
-imgs = as.tibble(dir(imgs_dir, recursive = T, pattern = ".TIF$", full.names=T))
-
-imgs_full = imgs %>%
-  mutate(date = lubridate::ymd_hms(str_match(imgs$value, ".*(MUL|PAN)/(.*)(-M|-P)2AS")[,3])) %>% 
-  mutate(part = str_match(imgs$value, ".*_01_(.*).TIF")[,2]) %>% 
-  mutate(id = str_match(imgs$value, ".*_01/(.*)_P00._")[,2]) %>% 
-  mutate(id_part = paste0(id,"_",part))
-
-imgs_MUL = imgs_full %>%
-   filter(str_detect(value, "_MUL"))
-
-imgs_PAN = imgs_full %>% 
-   filter(str_detect(value, "_PAN"))
-
-```
-
-
+### PAN images
 
 ```{r pan_cal}
-for(i in 1:length(imgs_PAN$value)){
-  library(raster)
-  library(stringr)
-  
-# raster options
-rasterOptions(todisk=T) # forces on disk writing instead of in memory
-rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
-rasterOptions(maxmemory = 1e+08)
 
+#pan_arc_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/PAN/" # PATH TO ARC OUTPUT, optionnal
+pan_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/PAN/" # PATH TO TOA OUTPUT
 
-print(paste0(i,"/",length(imgs_PAN$value)))
+for(i in seq_along(pan$X)){
+
+print(paste0(i,"/",length(pan$X))) # to track progress
   
-img = imgs_PAN[i,]
-r = brick(paste0(img[,1]))
-r[r<1]=NA
+img = pan[i,] # subset to one image
+r = brick(paste0(img$path)) # load image into R raster
+r[r<1]=NA # make 0s into NA
 
 rctx = subset(rct, rct$id_part==img$id_part)
 
-# centre = coordinateS(data.frame(mean(rctx$LLLon, rctx$URLon), mean(rctx$LLLat, rctx$URLat))) # center coords using metadata
-# centre = coordinates(data.frame(mean(r@extent@xmin,r@extent@xmax),mean(r@extent@ymin,r@extent@ymax))) # centre coords using raster
-# centre = SpatialPoints(centre, proj4string=CRS("+init=epsg:26918"))
-# centre_wgs = spTransform(centre, "+init=epsg:4326")
-
-# absolute radiometric correction ###############
+#### absolute radiometric correction ####
 r2 = rctx$gain*r*(rctx$abscalfactor/rctx$effectivebandwidth)+rctx$offset # absolute radiometric calibration
 
- writeRaster(r2,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/PAN/",
-                      as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-            overwrite=T)
+#### NOTE : the following line can be used to write the absolute radiometric calibration product, if needed
+ # writeRaster(r2,paste0(pan_arc_output, as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
 
-# TOA ###############
+#### TOA ####
 
-r3 = (r2*(calcEarthSunDist(rctx$date)^2)*pi) / # this gives TOA according to DigitalGlobe
+r3 = (r2*(calcEarthSunDist(rctx$date)^2)*pi) /
   ((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * 
-     # cos(zenith(solar(rctx$date),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180)) # using raster
-     cos(rctx$solar_zenith*pi/180)) # using metadata
+          cos(rctx$solar_zenith*pi/180)) # using metadata
 
-writeRaster(r3,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/PAN/",
-                      as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-            overwrite=T)
-
-# BOA DOS ###############
-
-# r4 = ((r2-min(values(r2), na.rm=T))*(calcEarthSunDist(rctx$date)^2)*pi) / # surface reflectance, according to martin 2009 DOS method
-#   ((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * cos(zenith(solar(rctx$date),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
-# 
-# writeRaster(r4,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/boa_dos/PAN/",
-#                       as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-#             overwrite=T)
-
-# BOA COST ############# not changed for metadata zenith
-
-# cost_term = 0.01*((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * cos(zenith(solar(rctx$date),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180)) / ((calcEarthSunDist(rctx$date)^2)*pi)
-# 
-# r5 = ((r2-(min(values(r2), na.rm=T)-cost_term))*(calcEarthSunDist(rctx$date)^2)*pi) / # surface reflectance, according to martin 2009 COST method
-#   ((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * cos(zenith(solar(rctx$date),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
-# 
-# writeRaster(r5,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/boa_cost/PAN/",
-#                       as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-#             overwrite=T)
+writeRaster(r3,paste0(pan_toa_output, as.Date(rctx$date[1]),"_PAN_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
  }
 
- # plot(r); plot(r2); plot(r3); plot(r4); plot(r5)
- # hist(r); hist(r2); hist(r3); hist(r4); hist(r5)
-
-
-```
-
-```{r mul_cal}
-for(i in 1:length(imgs_MUL$value)){
-  print(paste0("image ",i,"/",length(imgs_PAN$value)))
-
-   img = imgs_MUL[i,]
-   r = brick(paste0(img[,1]))
-   r[r<1]=NA
-   
-   rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
-   rctx1 = subset(rctx1, rctx1$bands!="P")
-
-   bands_order = c("C","B","G","Y","R","RE","N","N2")
-   rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
-
-   r2=r
-
-# centre = coordinateS(data.frame(mean(rctx$LLLon, rctx$URLon), mean(rctx$LLLat, rctx$URLat))) # center coords using metadata
-# centre = coordinates(data.frame(mean(r@extent@xmin,r@extent@xmax),mean(r@extent@ymin,r@extent@ymax))) # centre coords using raster
-# centre = SpatialPoints(centre, proj4string=CRS("+init=epsg:26918"))
-# centre_wgs = spTransform(centre, "+init=epsg:4326")
-
-for(b in 1:length(rctx$bands)){
-    print(paste0("band ",b,"/",length(rctx$bands)))
-
-# Absolute radiometric correction ##################
-
-r2[[b]] = rctx$gain[b]*r[[b]]*(rctx$abscalfactor[b]/rctx$effectivebandwidth[b])+rctx$offset[b]
-print("ARC")
-# TOA ######################
-
-r3 = (r2*(calcEarthSunDist(rctx$date[b])^2)*pi) / # this gives TOA
-  (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3)* #cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
-     cos(rctx$solar_zenith[b]*pi/180))
-print("TOA")
-
-# # BOA_DOS ######################
-# 
-# r4 = ((r2-min(values(r2), na.rm=T))*(calcEarthSunDist(rctx$date[b])^2)*pi) / # this gives TOA
-#   ((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3 * cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
-# print("BOA_DOS")
-# BOA_COST #########################
-# 
-# cost_term = 0.01*((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * cos(zenith(solar(rctx$date),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180)) / ((calcEarthSunDist(rctx$date)^2)*pi)
-# 
-# r5 = ((r2-(min(values(r2), na.rm=T)-cost_term))*(calcEarthSunDist(rctx$date[b])^2)*pi) / # this gives TOA
-#   ((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3 * cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
-# print("BOA_COST")
-}
-
-writeRaster(r2,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/MUL/",
-                      as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-            overwrite=T)
-
-writeRaster(r3,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/",
-                      as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-            overwrite=T)
-
-# writeRaster(r4,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/boa_dos/MUL/",
-#                       as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-#             overwrite=T)
-
-# writeRaster(r5,paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/boa_cost/MUL/",
-#                       as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]),
-#             overwrite=T)
-
-}
-
-
-
-
 ```
 
 
-# mosaic building
+Let's visualize the first layer of every product to understand the difference between them. At this stage, scenes from different satellites should be comparable in their value range.
 
 ```{r}
-TOA = as.data.frame(dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL",full.names=T, pattern=".tif$"))
-colnames(TOA)=c("value")
-
-## trying with id as mosaic base
-TOA2 = TOA %>%
-  mutate(date = str_match(TOA$value, ".*MUL/(.*)_MUL_")[,2]) %>% # this extracts the date from the name string 
-  mutate(part = str_match(TOA$value, ".*_01_(.*).tif")[,2]) %>%
-  mutate(id = str_match(TOA$value, "_....-(.*)_P00")[,2]) %>% 
-  mutate(id_part = paste0(id,"_",part))
+ plot(r[[1]], main="DN"); plot(r2[[1]],main="ARC"); plot(r3[[1]],main="TOA")
+ hist(r[[1]], main="DN"); hist(r2[[1]], main="ARC"); hist(r3[[1]],main="TOA")
+```
 
 
-for(i in 1:length(unique(TOA2[,5]))){
-print(paste0("tile ",i," out of ",length(unique(TOA2[,5]))," at ",Sys.time())) # to see progress
+### MUL images
 
-img_d = subset(TOA2, TOA2[,5]==unique(TOA2[,5])[i]) # subsets all rows for a single date
+```{r mul_cal}
 
+#mul_arc_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/MUL/" # PATH TO ARC OUTPUT, optionnal
+mul_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/" # PATH TO TOA OUTPUT
 
-if(length(img_d[,1])>1){ # if this date has many images, they will be mosaiced together
-rl = list() # creates an empty list where the rasters will be stored 
+for(i in seq_along(mul$X)){
 
-for(j in 1:length(img_d[,1])){ # fills the list will all rasters
-rl[[j]] = brick(as.character(img_d[,1][j]))
-}
+print(paste0(i,"/",length(mul$X))) # to track progress
+  
+img = pan[i,] # subset to one image
+r = brick(paste0(img$path)) # load image into R raster
+r[r<1]=NA # make 0s into NA
 
-rasters.mosaicargs = rl # object to call with the do.call function that will apply mosaic to all rasters
-rasters.mosaicargs$fun = mean
+rctx = subset(rct, rct$id_part==img$id_part)
 
-mos = do.call(mosaic, rasters.mosaicargs) # mos is the mosaic of all rasters of a single date
+#### absolute radiometric correction ####
+r2 = rctx$gain*r*(rctx$abscalfactor/rctx$effectivebandwidth)+rctx$offset # absolute radiometric calibration
 
-writeRaster(mos, paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/mosaic/perdateid/",img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
-}
+#### NOTE : the following line can be used to write the absolute radiometric calibration product, if needed
+ # writeRaster(r2,paste0(pan_arc_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
 
-if(length(img_d[,1])==1){ # if there was a single image, it will still be written as a mosaic, since it is a complete view of the scene
-mos = brick(as.character(img_d[,1][1]))
+#### TOA ####
 
-writeRaster(mos, paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/mosaic/perdateid/",img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
-TOA2
-}
-}
+r3 = (r2*(calcEarthSunDist(rctx$date)^2)*pi) /
+  ((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3 * 
+          cos(rctx$solar_zenith*pi/180)) # using metadata
+
+writeRaster(r3,paste0(mul_toa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
+ }
 
 ```
+
+Let's visualize the first layer of every product to understand the difference between them. At this stage, scenes from different satellites should be comparable in their value range.
+
+```{r}
+ plot(r[[1]], main="DN"); plot(r2[[1]], main="ARC"); plot(r3[[1]],main="TOA")
+ hist(r[[1]], main="DN"); hist(r2[[1]], main="ARC"); hist(r3[[1]],main="TOA")
+```
+

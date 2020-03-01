@@ -23,9 +23,6 @@ rm(list=ls()) # clean R environment
 library(sf) # for spatial simple feature objects
 library(raster) # for spatial raster data
 library(tidyverse) # for tidy data handling 
-library(ggplot2) # for easy data plotting
-library(leaflet) # for interactive maps
-library(mapview) # for better interactive maps 
 library(data.table) # for %like% function
 library(kableExtra)
 ```
