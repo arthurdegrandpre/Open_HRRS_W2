@@ -191,7 +191,7 @@ kable(radiometric_calibration_parameters) %>%
   kable_styling() %>% 
   scroll_box(width="600px",height="500px")
 
-write.csv(MUL_summary, "../data/MUL_radiometric_calibration_parameters.csv") # writes the table in the data folder
+write.csv(radiometric_calibration_parameters, "../data/radiometric_calibration_parameters.csv") # writes the table in the data folder
 ```
 
 ## MUL Visualisation  (data specific CEGRIM)
