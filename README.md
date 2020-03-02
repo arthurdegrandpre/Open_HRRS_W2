@@ -7,7 +7,7 @@ output:
     keep_md: yes
 ---
 
-# Open_HRRS_W2
+# Open_HRRS_W2 - README
 This repository aims to provide an open-source based high resolution remote sensing workflow for vegetation mapping in optically shallow (type-2) waters.  
 It relies heavily on object based image analysis methods, such as feature extraction and image segmentation, which are provided by **Orfeo-Toolbox**.  
 
