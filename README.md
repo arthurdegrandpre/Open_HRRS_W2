@@ -34,6 +34,18 @@ If you encounter major issues, please add an issue to the online github reposito
 
 ## State of the workflow
 At this moment, functionnal steps include :  
-- 
+- metadata extraction  
+- absolute radiometric calibration
+- top of atmosphere reflectance transformation
 
 ## Roadmap
+Steps that are not yet fully functionnal or incorporated include :  
+- mosaic building and atmospheric correction (status: functionnal, not yet knitted, ETA early March)  
+- feature extraction and image segmentation (status: functionnal, not yet cleaned, ETA early March)  
+- wet vs dry objects classification (status: currently testing methods, ETA early March)  
+- sun glint correction (status: functionnal, but requires better wet vs dry classification for better results, ETA early March)  
+- vegetation classification (status: not yet coded, very similar method to wet vs dry classification, ETA April)  
+- pansharpening and high resolution classification (status: optionnal, but can greatly improve mapping resolution. ETA Q2 2020)  
+- parrallel processing (status: optionnal, but can greatly improve processing speed. ETA Q2 2020)
+- pack code into functions and into a library (status: optionnal, ETA ???)
+- add a *shiny* application interface (status: optionnal, ETA ???)
