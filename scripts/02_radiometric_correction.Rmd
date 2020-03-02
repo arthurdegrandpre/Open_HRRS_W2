@@ -76,10 +76,10 @@ Where $\rho(TOA)_\lambda$ is the top of atmosphere reflectance,
 Let's read the data necessary for calibration
 
 ```{r read data}
-DG_param = read.csv("./data/gain_offset_table_exo.csv", sep=";",header=T)
-rcp = read.csv("./data/radiometric_calibration_parameters.csv")
-mul = read.csv("./data/multispectral_summary.csv")
-pan = read.csv("./data/panchromatic_summary.csv")
+DG_param = read.csv("../data/gain_offset_table_exo.csv", sep=";",header=T)
+rcp = read.csv("../data/radiometric_calibration_parameters.csv")
+mul = read.csv("../data/multispectral_summary.csv")
+pan = read.csv("../data/panchromatic_summary.csv")
 ```
 
 Let's merge digitalglobe's parameters with our metadata information. Mean orbit altitude will also be added since it was not included in previous references.
@@ -101,7 +101,7 @@ esd = data.frame(sats,alt_m)
 
 rct = merge(rct, esd)
 
-write.csv(rct, "./data/radiometric_correction_table.csv")
+write.csv(rct, "../data/radiometric_correction_table.csv")
 ```
 
 ## radiometric calibration and top of atmosphere reflectance transformation
@@ -112,13 +112,14 @@ write.csv(rct, "./data/radiometric_correction_table.csv")
 
 #pan_arc_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/PAN/" # PATH TO ARC OUTPUT, optionnal
 pan_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/PAN/" # PATH TO TOA OUTPUT
+path_to_images = "//Glaciolab/homes/degranda/MFFP/" # missing part to the path variable in image summaries
 
 for(i in seq_along(pan$X)){
 
 print(paste0(i,"/",length(pan$X))) # to track progress
   
 img = pan[i,] # subset to one image
-r = brick(paste0(img$path)) # load image into R raster
+r = brick(paste0(path_to_images,img$path)) # load image into R raster
 r[r<1]=NA # make 0s into NA
 
 rctx = subset(rct, rct$id_part==img$id_part)
@@ -155,12 +156,13 @@ Let's visualize the first layer of every product to understand the difference be
 
 #mul_arc_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/MUL/" # PATH TO ARC OUTPUT, optionnal
 mul_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/" # PATH TO TOA OUTPUT
+path_to_images = "//Glaciolab/homes/degranda/MFFP/" # missing part to the path variable in image summaries
 
 for(i in seq_along(mul$X)){
   print(paste0("image ",i,"/",length(mul$X)))
 
    img = mul[i,]
-   r = brick(paste0(img$path))
+   r = brick(paste0(path_to_images,img$path))
    r[r<1]=NA
    
    rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
