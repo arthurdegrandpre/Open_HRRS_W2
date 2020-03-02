@@ -23,9 +23,6 @@ rm(list=ls()) # clean R environment
 library(sf) # for spatial simple feature objects
 library(raster) # for spatial raster data
 library(tidyverse) # for tidy data handling 
-library(ggplot2) # for easy data plotting
-library(leaflet) # for interactive maps
-library(mapview) # for better interactive maps 
 library(data.table) # for %like% function
 library(kableExtra)
 ```
@@ -36,7 +33,7 @@ library(kableExtra)
 The first step is to catalogue everything that we got and determine how to read it efficiently. The directory has to be changed to a directory containing all the files to explore.
 
 ```{r finding images}
-imgs_dir = "X:/MFFP" # directory containg all satellite images (can be in different folders, to be found with recursive search)
+imgs_dir = "X:/MFFP" # directory containing all satellite images (can be in different folders, to be found with recursive search)
 
 #### extract date and type from the name ####
 imgs = as.data.frame(dir(imgs_dir, recursive = T, pattern = ".TIF$")) # creates a dataframe of all image names 
@@ -191,7 +188,7 @@ kable(radiometric_calibration_parameters) %>%
   kable_styling() %>% 
   scroll_box(width="600px",height="500px")
 
-write.csv(MUL_summary, "../data/MUL_radiometric_calibration_parameters.csv") # writes the table in the data folder
+write.csv(radiometric_calibration_parameters, "../data/radiometric_calibration_parameters.csv") # writes the table in the data folder
 ```
 
 ## MUL Visualisation  (data specific CEGRIM)
