@@ -15,8 +15,10 @@ This fourth script is used to extract additionnal textural and statistical infor
 
 and specify the installation path here, aswell as allocated RAM (does not need to be a lot) : 
 ```{r OTB config}
+rm(list=ls())
+
 otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
-otb.ramlimit = 2048
+otb.ramlimit = 2048 # does not seem to work without changing windows environment variable (not an issue)
 ```
 
 # R setup
@@ -26,7 +28,6 @@ All libraries must be installed prior to loading them. Installing them individua
 **important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
 
 ```{r setup, message=F, warning=F}
-rm(list=ls())
 library(sf)
 library(raster)
 library(tidyverse)
@@ -60,7 +61,7 @@ feature.LocalStatisticExtraction <- function(
                            ){
   
 # Set configuration      
-conf <- paste("-RAM ",OTB.ramlimit,
+conf <- paste("-RAM ",otb.ramlimit,
               "-in",raster.in,
               "-channel",channel,
               "-radius",radius,
@@ -84,7 +85,7 @@ feature.EdgeExtraction <- function(
                            ){
   
 # Set configuration      
-conf <- paste("-RAM ",OTB.ramlimit,
+conf <- paste("-RAM ",otb.ramlimit,
               "-in",raster.in,
               "-channel",channel,
               "-filter",filter,
@@ -116,7 +117,7 @@ feature.HaralickTextureExtraction <- function(
                            ){
   
 # Set configuration      
-conf <- paste("-RAM ",OTB.ramlimit,
+conf <- paste("-RAM ",otb.ramlimit,
               "-in",raster.in,
               "-channel",channel,
               "-texture",texture,
@@ -132,7 +133,7 @@ conf <- paste("-RAM ",OTB.ramlimit,
   
   shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
 
-write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F, overwrite=T)
 }
 ```
 
@@ -142,40 +143,40 @@ For the extraction, input and output directories need to be defined.
 
 ```{r directories definition}
 
-input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost"
+input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
 output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
 ```
 
 Sligthly different calls will be made based on wether the image has 4 or 8 bands in order to use the right NIR band.
 
-```{r feature extractions}
-imgs = dir(input_dir,full.names=T, pattern=".tif$")
+```{r feature extractions, eval=F}
 
-for(i in 1:seq_along(imgs)){
+for(i in seq_along(imgs)){
 
   r = brick(imgs[i])
   
-  if(nlayer(r)==8){
+  if(nlayers(r)==8){
 feature.LocalStatisticExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ls_",str_sub(imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
   
 feature.EdgeExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ee_",str_sub(imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
 
 feature.HaralickTextureExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ht_",str_sub(imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -188,25 +189,25 @@ feature.HaralickTextureExtraction(
                            )
   } else {
 feature.LocalStatisticExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ls_",str_sub(imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
   
 feature.EdgeExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ee_",str_sub(imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
 
 feature.HaralickTextureExtraction(
-                           raster.in = gsub("/","\\\\",input_dir[i]),
+                           raster.in = gsub("/","\\\\",imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(input_dir[i],-46)),
+                           name      = paste0("ht_",str_sub(imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -225,18 +226,17 @@ feature.HaralickTextureExtraction(
 Finally,  
 Let's add those features to the BOA image for segmentation.
 
-```{r}
+```{r, eval=F}
 for(i in seq_along(imgs)){
   r = brick(imgs[i])
   
   features = c("localstats","edge","haralick")
   
   for(j in seq_along(features)){
-  addLayer(r, brick(dir(paste0(output_dir,features[j]))[i]))
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))
   }
   
-  writeRaster(r, paste0(output_dir,str_sub(input_dir[i],-46)))
-  
+  writeRaster(r, paste0(output_dir,str_sub(imgs[i],-46)), overwrite=T)
 }
 ```
 
@@ -281,6 +281,8 @@ conf <- paste("-RAM ",otb.ramlimit,"-in",raster.in,"-filter meanshift","-filter.
 
 write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
 }
+
+otb.path
 ```
 
 ## apply segmentation
@@ -297,7 +299,7 @@ output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/segmentation
 ```{r segmentation}
 imgs = dir(input_dir,full.names=T, pattern=".tif$")
 
- for(i in 1:length(imgs)){
+ for(i in seq_along(imgs)){
   
 meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
                filter.meanshift.ranger   = "0.003",  # default 15
