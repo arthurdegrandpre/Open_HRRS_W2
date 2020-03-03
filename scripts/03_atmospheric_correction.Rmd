@@ -52,7 +52,7 @@ mosaic_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/mosai
 
 ```
 
-```{r build mosaics, eval=F}
+```{r build mosaics}
 
 #### mosaicing ####
 TOA = as.data.frame(dir(path_to_toa,full.names=T, pattern=".tif$"))
