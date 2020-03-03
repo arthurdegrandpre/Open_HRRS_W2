@@ -21,7 +21,8 @@ All libraries must be installed prior to loading them. Installing them individua
 
 **important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
 
-```{r setup, message=F, warning=F}
+
+```r
 rm(list=ls())
 library(sf)
 library(raster)
@@ -43,17 +44,15 @@ rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary f
 # mosaic building
 
 
-```{r paths mosaic}
 
+```r
 #### parameters to change ####
 path_to_toa = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/" # path to TOA MUL images, from the previous script
 mosaic_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/mosaic/perdateid/" # path where to write mosaic MUL images (less files, but larger)
-
-
 ```
 
-```{r build mosaics, eval=F}
 
+```r
 #### mosaicing ####
 TOA = as.data.frame(dir(path_to_toa,full.names=T, pattern=".tif$"))
 colnames(TOA)=c("value")
@@ -94,27 +93,30 @@ writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_TO
 TOA2
 }
 }
-
 ```
 
 Mosaic visualisation test
-```{r vis mosaic}
+
+```r
 r1v = brick(dir(path_to_toa, full.names=T, pattern=".tif$")[3])
 r2v = brick(dir(mosaic_output, full.names=T, pattern=".tif$")[2])
 plot(r1v[[1]], main="tile");plot(r2v[[1]], main="mosaic")
 ```
 
+![](03_atmospheric_correction_files/figure-html/vis mosaic-1.png)<!-- -->![](03_atmospheric_correction_files/figure-html/vis mosaic-2.png)<!-- -->
+
 # DOS-COST correction
 
-```{r atcor path}
+
+```r
 #### required inputs ####
 atcor_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
 correction_quantile = 0.01 # this is used to apply the 1% DOS correction. taking the 1% quantile instead of minimum value, since real dark objects do not exist.
 ```
 
 
-```{r atcor}
 
+```r
 #### correction ####
 TOAM = as.data.frame(dir(mosaic_output, full.names=T, pattern=".tif$"))
 colnames(TOAM)="value"
@@ -143,9 +145,31 @@ writeRaster(r2, paste0(atcor_output,gsub("T","B",str_sub(doscost_table[i,2],-46)
 }
 ```
 
+```
+## [1] "1 out of 16"
+## [1] "2 out of 16"
+## [1] "3 out of 16"
+## [1] "4 out of 16"
+## [1] "5 out of 16"
+## [1] "6 out of 16"
+## [1] "7 out of 16"
+## [1] "8 out of 16"
+## [1] "9 out of 16"
+## [1] "10 out of 16"
+## [1] "11 out of 16"
+## [1] "12 out of 16"
+## [1] "13 out of 16"
+## [1] "14 out of 16"
+## [1] "15 out of 16"
+## [1] "16 out of 16"
+```
+
 Visualisation of atmospheric correction 
 
-```{r atcor vis}
+
+```r
 plot(r[[1]],main="TOA mosaic"); plot(r2[[1]], main="BOA mosaic")
 ```
+
+![](03_atmospheric_correction_files/figure-html/atcor vis-1.png)<!-- -->![](03_atmospheric_correction_files/figure-html/atcor vis-2.png)<!-- -->
 
