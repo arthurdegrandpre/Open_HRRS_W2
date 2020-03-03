@@ -34,17 +34,18 @@ If you encounter major issues, please add an issue to the online github reposito
 
 ## State of the workflow
 At this moment, functionnal steps include :  
-- metadata extraction  
-- absolute radiometric calibration
-- top of atmosphere reflectance transformation
+- metadata extraction (step 01)  
+- absolute radiometric calibration (step 02)  
+- top of atmosphere reflectance transformation (step 02)  
+- mosaic building and atmospheric correction (step 03)  
 
 ## Roadmap
 Steps that are not yet fully functionnal or incorporated include :  
-- mosaic building and atmospheric correction (status: functionnal, not yet knitted, ETA early March)  
 - feature extraction and image segmentation (status: functionnal, not yet cleaned, ETA early March)  
 - wet vs dry objects classification (status: currently testing methods, ETA early March)  
 - sun glint correction (status: functionnal, but requires better wet vs dry classification for better results, ETA early March)  
 - vegetation classification (status: not yet coded, very similar method to wet vs dry classification, ETA April)  
+- better georeferencing and reprojection (data specific objective for 2019 CEGRIM data, ETA Q2 2020)
 - pansharpening and high resolution classification (status: optionnal, but can greatly improve mapping resolution. ETA Q2 2020)  
 - parrallel processing (status: optionnal, but can greatly improve processing speed. ETA Q2 2020)
 - pack code into functions and into a library (status: optionnal, ETA ???)
