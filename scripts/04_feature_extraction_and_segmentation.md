@@ -14,7 +14,8 @@ This fourth script is used to extract additionnal textural and statistical infor
 **IMPORTANT :** running this script will required a functionnal installation of Orfeo Toolbox 7.0.0 or higher. Please, install OTB directly from :   https://www.orfeo-toolbox.org/download/
 
 and specify the installation path here, aswell as allocated RAM (does not need to be a lot) : 
-```{r OTB config}
+
+```r
 rm(list=ls())
 
 otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
@@ -27,7 +28,8 @@ All libraries must be installed prior to loading them. Installing them individua
 
 **important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
 
-```{r setup, message=F, warning=F}
+
+```r
 library(sf)
 library(raster)
 library(tidyverse)
@@ -52,7 +54,8 @@ rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary f
 Since OTB is not natively integrated in R, we need to write our own call functions. They will include a text configuration file with every product in order to know which parameters were used to create them.  
   
 ### LocalStatisticsExtraction
-```{r localstat function}
+
+```r
 feature.LocalStatisticExtraction <- function(
                            raster.in = "",
                            out.path  = "",
@@ -76,7 +79,8 @@ write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.name
 ```
 
 ### EdgeExtraction
-```{r edgeextract function}
+
+```r
 feature.EdgeExtraction <- function(
                            raster.in = "",
                            out.path  = "",
@@ -100,7 +104,8 @@ write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.name
 ```
 
 ### HaralickTextures
-```{r haralick function}
+
+```r
 feature.HaralickTextureExtraction <- function(
                            raster.in = "",
                            out.path  = "",
@@ -142,8 +147,8 @@ write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.name
 
 For the extraction, input and output directories need to be defined.
 
-```{r directories definition}
 
+```r
 input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
 output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
 imgs = dir(input_dir,full.names=T, pattern=".tif$")
@@ -151,8 +156,8 @@ imgs = dir(input_dir,full.names=T, pattern=".tif$")
 
 Sligthly different calls will be made based on wether the image has 4 or 8 bands in order to use the right NIR band.
 
-```{r feature extractions, eval=T}
 
+```r
 for(i in seq_along(imgs)){
 
   r = brick(imgs[i])
@@ -221,13 +226,13 @@ feature.HaralickTextureExtraction(
                            )
   }
   }
-  
 ```
 
 Finally,  
 Let's add those features to the BOA image for segmentation.
 
-```{r, eval=T}
+
+```r
 for(i in seq_along(imgs)){
   r = brick(imgs[i])
   
@@ -243,13 +248,15 @@ for(i in seq_along(imgs)){
 
 ### visual validation
 
-```{r}
+
+```r
 initial = dir(input_dir, full.names = T, pattern=".tif")
 final = dir(output_dir, full.names = T, pattern=".tif")
 
 plot(brick(initial[1]), main = "BOA image"); plot(brick(final[1]), main = "BOA + NIR features image")
-
 ```
+
+![](04_feature_extraction_and_segmentation_files/figure-html/unnamed-chunk-2-1.png)<!-- -->![](04_feature_extraction_and_segmentation_files/figure-html/unnamed-chunk-2-2.png)<!-- -->
 
 # Image segmentation
 
@@ -259,7 +266,8 @@ Image segmentation is used to create polygons based on a raster. In this case, w
   
 ## defining segmentation function
 
-```{r define segmentation function}
+
+```r
 meanshift.segm <- function(raster.in = "",
                            out.path  = "",
                            name      = "",
@@ -289,12 +297,14 @@ Segmentation parameters will greatly affect the segmentation quality. If segment
 
 The output from this section is a simple shapefile
 
-```{r directories for seg}
+
+```r
 input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
 output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/segmentation_water"
 ```
 
-```{r segmentation, eval=T}
+
+```r
 imgs = dir(input_dir,full.names=T, pattern=".tif$")
 
  for(i in seq_along(imgs)){
@@ -313,11 +323,35 @@ meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
 
 ### visual validation
 
-```{r}
+
+```r
 initial = dir(input_dir, full.names = T, pattern=".tif")
 final = dir(output_dir, full.names = T, pattern=".shp")
 
 plot(brick(initial[1]), main = "BOA image"); plot(readOGR(final[1]), main = "segments")
+```
+
+![](04_feature_extraction_and_segmentation_files/figure-html/unnamed-chunk-3-1.png)<!-- -->
+
+```
+## OGR data source with driver: ESRI Shapefile 
+## Source: "\\Glaciolab\homes\degranda\MFFP\digitalglobe_archives\segmentation_water\2009-09-05_010623053080_01_P001_BOA_MOSAIC.tif.shp", layer: "2009-09-05_010623053080_01_P001_BOA_MOSAIC.tif"
+## with 273276 features
+## It has 1 fields
+```
+
+![](04_feature_extraction_and_segmentation_files/figure-html/unnamed-chunk-3-2.png)<!-- -->
+
+```r
 plot(brick(initial[1])[[2]], main = "BOA image, zoom B2 + segments", xlim=c(664500,665000),ylim=c(5111500,5112000)); plot(readOGR(final[1]), main = "segments",add=T, xlim=c(664500,665000),ylim=c(5111500,5112000))
+```
+
+![](04_feature_extraction_and_segmentation_files/figure-html/unnamed-chunk-3-3.png)<!-- -->
+
+```
+## OGR data source with driver: ESRI Shapefile 
+## Source: "\\Glaciolab\homes\degranda\MFFP\digitalglobe_archives\segmentation_water\2009-09-05_010623053080_01_P001_BOA_MOSAIC.tif.shp", layer: "2009-09-05_010623053080_01_P001_BOA_MOSAIC.tif"
+## with 273276 features
+## It has 1 fields
 ```
 
