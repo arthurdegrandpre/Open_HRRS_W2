@@ -20,13 +20,16 @@ Finally, the workflow is coded in R language, using Rmarkdown notebooks for anno
 
 ## Instructions
 The workflow includes many steps, some of which are not yet functionnal.  
-All steps will be contained within their own Rmarkdown script (.Rmd), and accompanied by a standalone html file for easier reading, and another .md file for displaying the code on the online github repository.  
-  
+All steps will be contained within their own Rmarkdown script (.Rmd) located within the "scripts" subfolder of this repository, and accompanied by a standalone html file for easier reading, and another .md file for displaying the code on the online github repository.  
   
 Steps are numbered in the order they have to be executed.  
-Simply open the R project located in the main directory, then the scripts for each step via their .Rmd file.  
+In order **to explore the workflow** and see each step's results, download and read the html version of the scripts.  
+In order **to use the workflow**, first download, clone or fork this repository.  
+Then, open the R project located in the main directory, then the scripts for each step via their .Rmd file.  
 First code chunks for each step include a clean-up of the R environment and the loading of all required libraries.  
 All libraries MUST be installed before loading them. To prevent involountary updates, please install them **only** if necessary using the **install.packages("package_name_here")** function.  
+
+Be careful of correctly adjusting the paths defining the input and output directories troughout the process.
   
 In order for each step to run smoothly, many intermediate files are created across the workflow. Posteriori clean-up might be beneficial.  
 
