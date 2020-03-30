@@ -46,8 +46,8 @@ At this moment, functionnal steps include :
 ## Roadmap
 Steps that are not yet fully functionnal or incorporated include :  
  
-- wet vs dry objects classification (status: currently testing supervised object based methods, ETA March)  
-- sun glint correction (status: functionnal, but requires better wet vs dry classification for better results, ETA soon after classification)  
+- wet vs dry objects classification (status: functionnal, but very slow and very manual)  
+- sun glint correction (status: functionnal, quite fast and joined to wet vs dry classification)  
 - vegetation classification (status: not yet coded, very similar method to wet vs dry classification, ETA March-April)  
 - better georeferencing and reprojection (data specific objective for 2019 CEGRIM data, ETA Q2 2020)
 - pansharpening and high resolution classification (status: optionnal, but can greatly improve mapping resolution. ETA Q2 2020)  
