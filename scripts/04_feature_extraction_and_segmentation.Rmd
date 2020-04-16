@@ -9,7 +9,9 @@ output:
     toc_float: yes
 ---
 
-This fourth script is used to extract additionnal textural and statistical information from the images, using local statistical moments, haralick textures and edge extraction from OrfeoToolBox. OrfeoToolBox (OTB) is an open-source high resolution image analysis software code in C++ that can run within it's own GUI, or can be called from command line, allowing its use within R or Python. The feature extraction will be applied onto bottom of atmosphere mosaic images as produced in the previous scripts, 03_atmospheric_correction.
+
+
+This fourth script is used to extract additionnal textural and statistical information from the images, using local statistical moments, haralick textures and edge extraction from OrfeoToolBox in order to perform an adequate segmentation of the image prior to glint correction. OrfeoToolBox (OTB) is an open-source high resolution image analysis software code in C++ that can run within it's own GUI, or can be called from command line, allowing its use within R or Python. The feature extraction will be applied onto bottom of atmosphere mosaic images as produced in the previous scripts, 03_atmospheric_correction.
 
 **IMPORTANT :** running this script will required a functionnal installation of Orfeo Toolbox 7.0.0 or higher. Please, install OTB directly from :   https://www.orfeo-toolbox.org/download/
 
@@ -42,6 +44,29 @@ library(landscapetools)
 # raster options
 rasterOptions(todisk=T) # forces on disk writing instead of in memory
 rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
+```
+
+# Select images for glint correction
+
+Not all images will require glint correction. This should be evaluated visually by considering wether or not it is believed that sun glint caused by waves can affect the capacity to detect submerged vegetation.
+
+This can be done within any GIS software. We'll use QGIS3
+
+(CEGRIM SPECIFIC SECTION)
+
+```{r years_to_fix}
+years = c(2011,2013,2017,2019)
+input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
+output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+glint_imgs = as.vector(NULL)
+
+for(i in seq_along(years)){
+glinty = imgs[grepl(as.character(years[i]),imgs)]
+glint_imgs = append(glint_imgs,glinty)
+}
+
 ```
 
 
@@ -134,50 +159,41 @@ conf <- paste("-RAM ",otb.ramlimit,
   
   shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
 
-write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F, overwrite=T)
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
 }
 ```
 
 ## OTB NIR based feature extraction
 
-For the extraction, input and output directories need to be defined.
-
-```{r directories definition}
-
-input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
-output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
-imgs = dir(input_dir,full.names=T, pattern=".tif$")
-```
-
 Sligthly different calls will be made based on wether the image has 4 or 8 bands in order to use the right NIR band.
 
 ```{r feature extractions, eval=T}
 
-for(i in seq_along(imgs)){
+for(i in seq_along(glint_imgs)){
 
-  r = brick(imgs[i])
+  r = brick(glint_imgs[i])
   
   if(nlayers(r)==8){
 feature.LocalStatisticExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(imgs[i],-46)),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
   
 feature.EdgeExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(imgs[i],-46)),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
 
 feature.HaralickTextureExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(imgs[i],-46)),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-46)),
                            channel = "8",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -190,25 +206,25 @@ feature.HaralickTextureExtraction(
                            )
   } else {
 feature.LocalStatisticExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(imgs[i],-46)),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
   
 feature.EdgeExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(imgs[i],-46)),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
 
 feature.HaralickTextureExtraction(
-                           raster.in = gsub("/","\\\\",imgs[i]),
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(imgs[i],-46)),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-46)),
                            channel = "4",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -228,8 +244,8 @@ Finally,
 Let's add those features to the BOA image for segmentation.
 
 ```{r, eval=T}
-for(i in seq_along(imgs)){
-  r = brick(imgs[i])
+for(i in seq_along(glint_imgs)){
+  r = brick(glint_imgs[i])
   
   features = c("localstats","edge","haralick")
   
@@ -237,7 +253,7 @@ for(i in seq_along(imgs)){
   r = addLayer(r, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
   }
   
-  writeRaster(r, paste0(output_dir,str_sub(imgs[i],-46)), overwrite=T)
+  writeRaster(r, paste0(output_dir,str_sub(glint_imgs[i],-46)), overwrite=T)
 }
 ```
 
@@ -298,7 +314,6 @@ output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/segmentation
 imgs = dir(input_dir,full.names=T, pattern=".tif$")
 
  for(i in seq_along(imgs)){
-  
 meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
                filter.meanshift.ranger   = "0.003",  # default 15
                filter.meanshift.thres    = "0.001",  # default 0.1

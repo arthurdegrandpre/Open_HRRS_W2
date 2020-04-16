@@ -1,0 +1,280 @@
+---
+title: "05_classification_land_and_water"
+author: "Arthur de Grandpré"
+date: "6 mars 2020"
+output: 
+  html_document: 
+    keep_md: yes
+    toc: yes
+    toc_float: yes
+---
+
+This fifth script is used to classify the images, using previous features extraction and image segmentation as described in step 04. In order to perform the supervised classification, a training set will have to be defined manually, using a working GUI version of QGIS V3 or higher. Once the training set is ready, a random forest classification will be performed, to separated submerged and emerging objects.  
+  
+  This step is required in order to perform sun glint correction. If sun glint correction is not necessary within an image, it can just be skipped directly.
+
+QGIS download : https://www.qgis.org/en/site/
+
+# QGIS and building training sets
+
+In order to train the random forest algorythm, a sufficient amount of objects of known classes must be determined. Since all moisaics are slightly different, the best practice would be to create a training set for every image, which is quite tedious.  
+
+Minimally, you will want to have at least one training set for 4 bands data, and one for 8 bands data from a representative date (more could be necessary depending on the quality of the calibration and atmospheric correction). Since they have different numbers of bands, the same model won't be possible to use for predicting classes from 4bands and 8 bands images.
+  
+While there is no rule for minimum or maximum amount of objects per class, it is important to distribute the objects well within the different classes. If one class is "water" and the image shows different water masses, enough "water" objects should be defined in every water masses to represent the variations occuring within those water masses, and the broader water class. With more classes, uncertain objects will be easier to control by masking.
+  
+Since R is a very bad tool for manipulation polygon data, QGIS, an open source GIS suite will be used for this first step.
+
+## QGIS instructions
+
+First of all, look for which images require sun glint correction. This can be done by visually exploring the images in QGIS. (and was done in the previous step (04)
+
+load your first raster and the corresponding segmentation layer into QGIS.  
+
+
+
+
+# R setup
+
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function.
+
+**important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
+
+```{r setup, message=F, warning=F}
+rm(list=ls()) ; gc()
+# install.packages("spatialEco")
+# install.packages("randomForest")
+# install.packages("party")
+library(sf)
+library(raster)
+library(tidyverse)
+library(data.table)
+library(sp)
+library(stringr)
+library(rgdal)
+library(randomForest)
+library(spatialEco)
+library(party)
+library(velox)
+# library(doParallel) # could be added at some point to speedup the process
+# library(foreach) # could be added at some point to speedup the process
+
+# raster options
+rasterOptions(todisk=F) # forces on disk writing instead of in memory
+rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
+# rasterOptions()
+rasterOptions(maxmemory = 1e+10)
+```
+
+# Random forest classification
+
+## training
+
+Since random forest is a supervised method of classification, it requires training data. Training data must be manually produced using any GIS software, but here, for open source purposes, we select QGIS. Once a proper training set is built (enough samples of enough classes for every image), whole image classification can be performed.
+
+```{r}
+input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/" #input BOA images with additionnal features
+input_t_obj = "../data/training_sets" #location of training sets.
+```
+
+
+```{r}
+rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+training_objects = dir(input_t_obj, pattern=".gpkg$", full.names=T)
+
+
+# 8 bands training set
+r = brick(rasters[6])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+
+s = readOGR(training_objects[3])
+s = s[,2:dim(s@data)[2]]
+
+zonal_s = zonal.stats(x = s, y = r, stats = c("min","sd","mean","max"))
+s@data = cbind(s@data,zonal_s)
+
+rf4 = randomForest(formula = class~.,
+                  data = s@data,
+                  proximity = T,
+                  ntree = 20000,
+                  # mtry = 20,
+                  # nodesize = 10,
+                  importance = T)
+
+
+plot(rf4)
+varImpPlot(rf4)
+importance = as.data.frame(importance(rf4))
+# importance = importance[order(importance$submerged, decreasing=T),]
+head(importance, 10)
+rf4
+
+# rf42 = randomForest(formula = class~.,
+#                     data = s@data[which(colnames(s@data) %in% c("class",rownames(head(importance,10))))],
+#                     proximity = T,
+#                     ntree = 5000,
+#                     mtry=5,
+#                     importance = T)
+# 
+# plot(rf42)
+# varImpPlot(rf42)
+# importance = as.data.frame(importance(rf42))
+# importance = importance[order(importance$submerged, decreasing=T),]
+# head(importance, 10)
+# rf42
+# 8 bands training set
+
+```
+
+## prediction
+
+```{r}
+input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/"
+rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
+output_rasters = "D:/arthur/digitalglobe_archives/water_mask/"
+
+
+i=6  
+r = brick(rasters[i])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+objects = dir(input_objects, pattern=".shp$", full.names=T)
+
+psp = readOGR(objects[i])
+psp@data$class = "unknown"
+
+psp = psp[,2:dim(psp@data)[2]]
+
+rv = velox(r)
+
+zonal_psp = data.frame()
+
+extract_psp = as.data.frame(rv$extract(psp, fun=function(x){min(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("min.",names(r))
+zonal_psp = rbind(zonal_psp, extract_psp)
+
+extract_psp = as.data.frame(rv$extract(psp, fun=function(x){max(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("max.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+
+extract_psp = as.data.frame(rv$extract(psp, fun=function(x){mean(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("mean.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+
+extract_psp = as.data.frame(rv$extract(psp, fun=function(x){sd(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("sd.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+
+psp2 = psp
+psp2@data = cbind(psp@data,zonal_psp)
+# psp2@data$class="unknown" 
+psp2 = sp.na.omit(psp2)
+
+psp2@data$class = predict(rf4, newdata=psp2@data, type = "class")
+writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/class_test_2017.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
+unique(psp2@data$class)
+
+# submerged = psp2[psp2@data$class %in% c("water_green","water_brown","water_dark","water_shadow","water_shallow"),] # 2011
+# submerged = psp2[psp2@data$class %in% c("water_blue","water_clear","water_shallow","veg_submerged"),] #2013 40p2
+psp2 = readOGR("D:/arthur/digitalglobe_archives/water_mask/class_test_2017.gpkg")
+submerged = psp2[psp2@data$class %in% c("water_blue","water_dark","water_brown","water_white","water_shallow","veg_submerged"),] #2017
+
+submerged_mask = st_union(st_as_sf(submerged))
+submerged_mask2 = st_cast(submerged_mask,"POLYGON")
+mask = as_Spatial(submerged_mask2)
+water = mask(r[[1:8]], submerged)
+
+writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-46)), overwrite=T)
+
+```
+
+# Glint correction
+
+```{r hochbergv2, eval=F}
+# install.packages("mapview")
+# install.packages("mapedit")
+# library(mapview)
+# library(mapedit)
+
+imgs = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+deep_zones = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/deep_zones/",full.names=T, pattern=".shp$")
+
+for(i in 1:length(imgs)){
+# i=2
+  print(paste0("image ",i," out of ",length(imgs)))
+  
+  r = brick(imgs[i])
+  # summary(r)
+  r = (r>=0)*r
+  # summary(r)
+  # plot(r)
+  dz = readOGR(deep_zones[i])
+  
+  rdz = crop(r,dz)
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(min.coords)
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(r)]] - min.pixel[[nlayers(r)]]
+  
+  fg = (r[[nlayers(r)]] - min.pixel[[nlayers(r)]]) / Lg_nir # or should this use the min NIR value from the whole scene?
+  # plot(fg)
+  
+  Lg = list()
+  
+  r2 = r
+  
+  for(b in 1:nlayers(r)){
+    print(b)
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = r[[b]] - fg * Lg[[b]]
+  }
+  
+  writeRaster(r2, paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/deglint_hochberg/hochberg2/",str_sub(imgs[i],-46)), overwrite=T)
+  
+  }
+
+```
+
+
+```{r hochbergv1, eval=F}
+
+imgs = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+
+# for(i in 1:length(imgs)){
+
+i=5
+print(paste0("image ",i," of ",length(imgs)))
+  r = brick(imgs[i])
+
+Lg_nir = quantile(r[[nlayers(r)]], probs=c(0.99)) - min(values(r[[nlayers(r)]]), na.rm = T) # uses the 99.999% quantile instead of max value
+
+## added removed 2 9 for 2013 050_p002 because of adjacency effect
+
+fg = (r[[nlayers(r)]]-min(values(r[[nlayers(r)]]), na.rm = T)) / Lg_nir
+
+Lg=list()
+
+r2 = r
+for(b in 1:nlayers(r)){
+  print(b)
+  Lg[[b]] = max(values(r[[b]]), na.rm = T) - min(values(r[[b]]), na.rm = T)
+  r2[[b]] = r[[b]] - fg * Lg[[b]]
+  }  
+# 
+# L=0.5
+# r$wavi = (1+L)*((r[[8]]-r[[2]])/(r[[8]]+r[[2]]+L))
+# r2$wavi = (1+L)*((r2[[8]]-r2[[2]])/(r2[[8]]+r2[[2]]+L))
+# 
+# plot(r);plot(r2)
+
+writeRaster(r2, paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/deglint_hochberg/",str_sub(imgs[i],-46)), overwrite=T)
+# }
+
+```
+
