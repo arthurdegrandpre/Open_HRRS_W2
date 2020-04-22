@@ -46,11 +46,12 @@ At this moment, functionnal steps include :
 ## Roadmap
 Steps that are not yet fully functionnal or incorporated include :  
  
-- wet vs dry objects classification (status: functionnal, but very slow and very manual)  
-- sun glint correction (status: functionnal, quite fast and joined to wet vs dry classification)  
-- vegetation classification (status: not yet coded, very similar method to wet vs dry classification, ETA March-April)  
-- better georeferencing and reprojection (data specific objective for 2019 CEGRIM data, ETA Q2 2020)
-- pansharpening and high resolution classification (status: optionnal, but can greatly improve mapping resolution. ETA Q2 2020)  
-- parrallel processing (status: optionnal, but can greatly improve processing speed. ETA Q2 2020)
+- wet vs dry objects classification (status: done for glinted images, but very slow and very manual)  
+- sun glint correction (status: functionnal, but requires a very unstable manual step and results are not very good)
+- New unresolved issue : Vertical stripping artifacts (Sensor issue generating large amounts of noise. problematic for vegetation mapping)
+- vegetation classification (status: not yet coded, very similar method to wet vs dry classification, ETA delayed to may-june)  
+- better georeferencing and reprojection (data specific objective for 2019 CEGRIM data, ETA Q2(3) 2020)
+- pansharpening and high resolution classification (status: optionnal, but can greatly improve mapping resolution. ETA Q3 2020)  
+- parrallel processing (status: optionnal, but can greatly improve processing speed. ETA Q2(3) 2020)
 - pack code into functions and into a library (status: optionnal, ETA ???)
 - add a *shiny* application interface (status: optionnal, ETA ???)
