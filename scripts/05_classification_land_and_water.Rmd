@@ -63,7 +63,7 @@ library(velox)
 rasterOptions(todisk=F) # forces on disk writing instead of in memory
 rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
 # rasterOptions()
-rasterOptions(maxmemory = 1e+10)
+rasterOptions(maxmemory = 1e+9)
 ```
 
 # Random forest classification
@@ -82,19 +82,22 @@ input_t_obj = "../data/training_sets" #location of training sets.
 rasters = dir(input_rasters, pattern=".tif$", full.names=T)
 training_objects = dir(input_t_obj, pattern=".gpkg$", full.names=T)
 
-
 # 8 bands training set
-r = brick(rasters[6])
+r = brick(rasters[7])
 names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
 
-s = readOGR(training_objects[3])
+training_objects
+s = readOGR(training_objects[4])
 s = s[,2:dim(s@data)[2]]
 
 zonal_s = zonal.stats(x = s, y = r, stats = c("min","sd","mean","max"))
 s@data = cbind(s@data,zonal_s)
 
+summary(s@data)
+s2 = s@data[is.finite(rowSums(s@data[,2:85])),]
+
 rf4 = randomForest(formula = class~.,
-                  data = s@data,
+                  data = s2,
                   proximity = T,
                   ntree = 20000,
                   # mtry = 20,
@@ -134,8 +137,7 @@ rasters = dir(input_rasters, pattern=".tif$", full.names=T)
 input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
 output_rasters = "D:/arthur/digitalglobe_archives/water_mask/"
 
-
-i=6  
+i=8  
 r = brick(rasters[i])
 names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
 objects = dir(input_objects, pattern=".shp$", full.names=T)
@@ -171,18 +173,21 @@ psp2@data = cbind(psp@data,zonal_psp)
 psp2 = sp.na.omit(psp2)
 
 psp2@data$class = predict(rf4, newdata=psp2@data, type = "class")
-writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/class_test_2017.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
-unique(psp2@data$class)
+writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/class_test_2019_2.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
+
+# note : 2017 was overwritten by 2019.... 
+# unique(psp2@data$class)
 
 # submerged = psp2[psp2@data$class %in% c("water_green","water_brown","water_dark","water_shadow","water_shallow"),] # 2011
 # submerged = psp2[psp2@data$class %in% c("water_blue","water_clear","water_shallow","veg_submerged"),] #2013 40p2
-psp2 = readOGR("D:/arthur/digitalglobe_archives/water_mask/class_test_2017.gpkg")
-submerged = psp2[psp2@data$class %in% c("water_blue","water_dark","water_brown","water_white","water_shallow","veg_submerged"),] #2017
+psp2 = readOGR("D:/arthur/digitalglobe_archives/water_mask/class_test_2019_2.gpkg")
+# submerged = psp2[psp2@data$class %in% c("water_blue","water_dark","water_brown","water_white","water_shallow","veg_submerged"),] #2017
 
+submerged = psp2[psp2@data$class %in% c("water_shallow","water_deep","water_clear","shallow_water","veg_submerged"),] #2019
 submerged_mask = st_union(st_as_sf(submerged))
 submerged_mask2 = st_cast(submerged_mask,"POLYGON")
-mask = as_Spatial(submerged_mask2)
-water = mask(r[[1:8]], submerged)
+smask = as_Spatial(submerged_mask2)
+water = mask(r[[1:8]], smask)
 
 writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-46)), overwrite=T)
 
@@ -190,34 +195,110 @@ writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-46)), overwrite=T)
 
 # Glint correction
 
-```{r hochbergv2, eval=F}
-# install.packages("mapview")
-# install.packages("mapedit")
-# library(mapview)
-# library(mapedit)
+```{r hochberg_v3, eval=F}
+### this 3rd implementation of the hochberg glint correction algorythm includes grouping for band TDI.
+### EX: for wv02, it seems coastal is timed with NIR2, yellow is timed with red edge, and RGB + NIR1 are timed together.
 
-imgs = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
-deep_zones = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/deep_zones/",full.names=T, pattern=".shp$")
+imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")
+tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
 
-for(i in 1:length(imgs)){
-# i=2
+# for(i in 1:length(imgs)){
+i=2
   print(paste0("image ",i," out of ",length(imgs)))
+
+  tdi_img = tdi_table[str_detect(as.character(imgs[i]), as.character(tdi_table$id_part)),]
+  tdi_img$bands = gsub(" ","",tdi_img$bands)
+  tdi_img = subset(tdi_img, tdi_img$bands != "P")
+  tdis = unique(tdi_img$tdi)
+  
+  if(length(tdis == 4)){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+  }
+  
+  tdis = unique(tdi_img$tdi)
   
   r = brick(imgs[i])
-  # summary(r)
-  r = (r>=0)*r
-  # summary(r)
-  # plot(r)
+  if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
+  if(nlayers(r)==4){names(r) = c("B","G","R","N")}
+  
   dz = readOGR(deep_zones[i])
   
-  rdz = crop(r,dz)
+  for(k in seq_along(tdis)){
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+
+  rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+  
+  dz = spTransform(dz, crs(rs))
+  rdz = readAll(crop(rs,dz))
   
   max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
   max.coords.pixel = SpatialPoints(max.coords)
   max.pixel = raster::extract(rdz,max.coords.pixel)
   
   min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
-  min.coords.pixel = SpatialPoints(min.coords)
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
+  
+  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
+  
+  Lg = list()
+  
+  r2 = rs
+
+  for(b in 1:nlayers(rs)){
+    print(b)
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = rs[[b]] - fg * Lg[[b]]
+  }
+  names(r2)=names(rs)
+  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
+  
+  if(k==length(tdis)){
+    r3 = r3[[names(r)]]
+    writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg3/",str_sub(imgs[i],-46)), overwrite=T)
+  } 
+  # }
+}
+
+```
+
+
+```{r hochbergv2, eval=F}
+# install.packages("mapview")
+# install.packages("mapedit")
+# library(mapview)
+# library(mapedit)
+
+imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")
+
+
+# for(i in 1:length(imgs)){
+i=7
+  print(paste0("image ",i," out of ",length(imgs)))
+
+  r = brick(imgs[i])
+  # summary(r)
+  # r = (r>=0)*r
+  # summary(r)
+  # plot(r)
+  dz = readOGR(deep_zones[i])
+
+  #### 2019 only
+  dz = spTransform(dz, crs(r))
+  ####
+  
+  rdz = readAll(crop(r,dz))
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
   min.pixel = raster::extract(rdz,min.coords.pixel)
   
   Lg_nir = max.pixel[[nlayers(r)]] - min.pixel[[nlayers(r)]]
@@ -235,12 +316,11 @@ for(i in 1:length(imgs)){
     r2[[b]] = r[[b]] - fg * Lg[[b]]
   }
   
-  writeRaster(r2, paste0("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/deglint_hochberg/hochberg2/",str_sub(imgs[i],-46)), overwrite=T)
+  writeRaster(r2, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg2/",str_sub(imgs[i],-46)), overwrite=T)
   
-  }
+  # }
 
 ```
-
 
 ```{r hochbergv1, eval=F}
 
@@ -248,7 +328,7 @@ imgs = dir("//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/water_mask/",f
 
 # for(i in 1:length(imgs)){
 
-i=5
+i=6
 print(paste0("image ",i," of ",length(imgs)))
   r = brick(imgs[i])
 

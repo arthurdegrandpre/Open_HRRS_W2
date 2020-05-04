@@ -33,7 +33,7 @@ library(kableExtra)
 The first step is to catalogue everything that we got and determine how to read it efficiently. The directory has to be changed to a directory containing all the files to explore.
 
 ```{r finding images}
-imgs_dir = "X:/MFFP" # directory containing all satellite images (can be in different folders, to be found with recursive search)
+imgs_dir = "//Glaciolab/home/MFFP" # directory containing all satellite images (can be in different folders, to be found with recursive search)
 
 #### extract date and type from the name ####
 imgs = as.data.frame(dir(imgs_dir, recursive = T, pattern = ".TIF$")) # creates a dataframe of all image names 
@@ -176,7 +176,18 @@ view_angle = 90-as.numeric( # define satellite viewing angle base on mean satell
 
 id_part = imds$id_part[i] # identify the part
 
-imdx_params = tibble(bands,abscalfactor, effectivebandwidth, id_part, solar_zenith, sats, view_angle) # make a dataframe
+tdi = as.factor(
+  gsub(";","", droplevels(
+    subset(imdx, imdx$V1 %like% "TDILevel")$V2
+  )))
+
+# pass_angle = as.numeric(
+#   gsub(";","", droplevels(
+#     subset(imdx, imdx)
+#   ))
+# )        
+
+imdx_params = tibble(bands,abscalfactor, effectivebandwidth, id_part, solar_zenith, sats, view_angle, tdi) # make a dataframe
 imdx_params$date = imds$date[i] # add the date
 
 radiometric_calibration_parameters = rbind(radiometric_calibration_parameters, imdx_params) # add to the table
