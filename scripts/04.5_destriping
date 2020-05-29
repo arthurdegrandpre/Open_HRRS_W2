@@ -1,0 +1,52 @@
+---
+title: "03.5_destriping"
+author: "Arthur de Grandpré"
+date: "4 mai 2020"
+output: html_document
+---
+
+
+```{r setup}
+
+rm(list=ls()) ; gc()
+
+library(tidyverse)
+library(sp)
+library(sf)
+library(raster)
+library(rgdal)
+```
+
+
+TEST using 2019_P002 and a manually delimitated stripe using QGIS
+
+```{r}
+# load 2019 image
+raster_dir = dir("D:/Arthur/digitalglobe_archives/water_mask", pattern=".tif$",full.names=T)
+
+r = brick(raster_dir[8])
+plot(r[[1]])
+
+# load stripe polygon
+stripe = st_read("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/destriping/2019_P002_stripe_test.gpkg")
+stripe = st_transform(stripe, crs(r))
+plot(stripe)
+
+# load overlapping objects polygon
+overlap = st_read("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/destriping/2019_overlap_objects.shp")
+overlap = st_transform(overlap, crs(r))
+plot(overlap)
+
+# clip image
+
+rs = mask(r, stripe)
+
+# zonal stats
+
+zs = zonal.stats(as_Spatial(overlap), rs, stats="mean")
+colnames(zs) = c("C","B","G","Y","R","RE","N","N2")
+zs$poly = seq(1:length(zs[,1])) 
+zsl = pivot_longer(zs,1:8)
+a
+```
+

@@ -1,0 +1,210 @@
+---
+title: "023_radiometric_correction"
+author: "Arthur de Grandpré"
+date: "28 mai 2020"
+output: html_document
+---
+
+This script calibrates and correct the radiometric signal from DN to BOA using absolute radiometric calibration and the COST method from Chavez.  
+This is basically the merging of scripts 02 and 03.
+
+# R setup
+
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function.
+
+**important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
+
+```{r setup, message=F, warning=F}
+rm(list=ls())
+library(sf)
+library(raster)
+library(tidyverse)
+library(data.table)
+library(satellite)
+library(GeoLight)
+library(sp)
+library(stringr)
+# library(doParallel) # could be added at some point to speedup the process
+# library(foreach) # could be added at some point to speedup the process
+
+# raster options
+rasterOptions(todisk=T) # forces on disk writing instead of in memory
+rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
+
+```
+
+
+# Absolute radiometric calibration & TOA transformation
+
+This step is detailed in DigitalGlobe's technical notes for radiometric use of worldview-02 and worldview-03 products, available in the documentation subfolder of this repository.
+  
+All parameters required for radiometric calibration have been compiled in a file and stored into the data subfolder (gain_offset_table_exo.csv), or extracted from the metadata in step 01.  
+  
+The given equation to do so is $$L =  GAIN * DN * (\frac{abscalfactor}{effectivebandwith})+OFFSET$$ 
+  
+Where $$L$$ is the at sensor radiance in units of W·sr−1·m−2·nm−1 (watt per steradian per square metre per nanometre)  
+  
+GAIN is the gain parameter specific to the band and satellite, as obtained from DigitalGlobe  
+  
+DN is the raw pixel value for a given band in the original product  
+  
+OFFSET is the offset parameter specific to the band and satellite, as obtained from DigitalGlobe  
+  
+abscalfactor is the absolute calibration factor parameter specific to the band, satellite and scene, as retrieved from each image's metadata.  
+  
+effectivebandwith is the actual effective wavelength sensibility range of every band, satellite and scene, as retrieved from each image's metadata.
+  
+  
+  Once at sensor radiance is obtained, it is possible to transform it into top-of-atmosphere reflectance, by the equation given within the technical notes of DigitalGlobe that goes as follow : 
+  
+  $$\rho(TOA)_\lambda = \frac{L_\lambda*d^2*\pi}{E_\lambda*cos(\theta_S)} $$
+
+Where $\rho(TOA)_\lambda$ is the top of atmosphere reflectance,  
+  
+  $L_\lambda$ is the at sensor radiance (previously calculated),  
+  
+  $d^2$ is the squared distance between the earth and the sun in astronomical units
+  
+  $E_\lambda$ is the exoatmospheric radiance (obtained from digitalglobe in 3 different values, but here the mean will be used)
+  
+  $cos(\theta_S)$ is the cosine of the solar zenith angle
+  
+Or, by using image based atmospheric correction methods such as the COST from Chaves 1996, it is possible to transform it into bottom-of-atmosphere reflectance as follow : 
+
+$$\rho(BOA)_\lambda = \frac{(L_\lambda-min(L_\lambda))*d^2*\pi}{E_\lambda*cos(\theta_S)*TAUz)} $$
+
+Where $\rho(BOA)_\lambda$ is the bottom of atmosphere reflectance,  
+  
+  $L_\lambda$ is the at sensor radiance (previously calculated),  
+  
+  $d^2$ is the squared distance between the earth and the sun in astronomical units
+  
+  $E_\lambda$ is the exoatmospheric radiance (obtained from digitalglobe in 3 different values, but here the mean will be used)
+  
+  $cos(\theta_S)$ is the cosine of the solar zenith angle
+  
+  $TAUz)$  atmospheric transmittance along the path from the sun to the ground surface (same as $\theta_S$ according to COST model, 1 according to DOS model)  
+    
+  An important thing to note in order to use the DOS and COST method is that a true dark object is required for the correction to work properly. Since true dark objects are rare, images from the same pass should be mosaiced together, allowing the minimum to be estimated from more data points. 
+  
+  
+## preparation 
+
+Let's read the data necessary for calibration
+
+```{r read data}
+DG_param = read.csv("../data/gain_offset_table_exo.csv", sep=";",header=T)
+rcp = read.csv("../data/radiometric_calibration_parameters.csv")
+mul = read.csv("../data/multispectral_summary.csv")
+pan = read.csv("../data/panchromatic_summary.csv")
+```
+
+Let's merge digitalglobe's parameters with our metadata information. Mean orbit altitude will also be added since it was not included in previous references.
+
+```{r merge data}
+DG_param$bands = gsub(" ","",DG_param$bands) # makes sure the are no useless spaces in strings
+DG_param$sats = gsub(" ","",DG_param$sats) # makes sure the are no useless spaces in strings
+
+rcp$sats = gsub(" ","",rcp$sats) # makes sure the are no useless spaces in strings
+rcp$bands = gsub(" ","",rcp$bands) # makes sure the are no useless spaces in strings
+
+rct = merge(rcp,DG_param,all=T) # radiometric correction table
+
+# add satellite altitude
+
+sats = c("QB02","WV02","WV03","WV04")
+alt_m = c(450000, 770000, 617000, 617000)
+esd = data.frame(sats,alt_m)
+
+rct = merge(rct, esd)
+
+write.csv(rct, "../data/radiometric_correction_table.csv")
+```
+
+## absolute radiometric calibration
+
+### MUL images
+
+```{r}
+mul_toa_output = "D:/Arthur/digitalglobe_archives/arc/MUL/" # PATH TO TOA OUTPUT
+path_to_images = "//Glaciolab/homes/degranda/MFFP/" # missing part to the path variable in image summaries
+
+for(i in seq_along(mul$X)){
+  print(paste0("image ",i,"/",length(mul$X)))
+
+   img = mul[i,]
+   r = brick(paste0(path_to_images,img$path))
+   r = reclassify(r, cbind(-1,1,NA), right=FALSE)
+   
+   rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
+   rctx1 = subset(rctx1, rctx1$bands!="P")
+
+   bands_order = c("C","B","G","Y","R","RE","N1","N")
+   rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
+
+   r2=r
+   
+   for(b in 1:length(rctx$bands)){
+     print(paste0("band ",b,"/",length(rctx$bands)))
+     r2[[b]] = rctx$gain[b]*r[[b]]*(rctx$abscalfactor[b]/rctx$effectivebandwidth[b])+rctx$offset[b]
+     
+   }
+   writeRaster(r2,paste0(mul_toa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img$path,-29)[1],".tif"), overwrite=T)
+}
+```
+
+### PAN images
+
+## mosaic building
+
+```{r paths mosaic}
+
+#### parameters to change ####
+path_to_toa = "D:/Arthur/digitalglobe_archives/arc/MUL/" # path to TOA MUL images, from the previous script
+mosaic_output = "D:/Arthur/digitalglobe_archives/arc/MUL/mosaics/" # path where to write mosaic MUL images (less files, but larger)
+```
+
+```{r build mosaics}
+
+#### mosaicing ####
+TOA = as.data.frame(dir(path_to_toa,full.names=T, pattern=".tif$"))
+colnames(TOA)=c("value")
+
+## obtain product details from the filenames
+TOA2 = TOA %>%
+  mutate(date = str_match(TOA$value, ".*MUL/(.*)_MUL_")[,2]) %>% # this extracts the date from the name string 
+  mutate(part = str_match(TOA$value, ".*_01_(.*).tif")[,2]) %>%
+  mutate(id = str_match(TOA$value, "_....-(.*)_P00")[,2]) %>% 
+  mutate(id_part = paste0(id,"_",part))
+
+
+for(i in 1:length(unique(TOA2[,5]))){
+print(paste0("tile ",i," out of ",length(unique(TOA2[,5]))," at ",Sys.time())) # to see progress
+
+img_d = subset(TOA2, TOA2[,5]==unique(TOA2[,5])[i]) # subsets all rows for a single date
+
+
+if(length(img_d[,1])>1){ # if this date has many images, they will be mosaiced together
+rl = list() # creates an empty list where the rasters will be stored 
+
+for(j in 1:length(img_d[,1])){ # fills the list will all rasters
+rl[[j]] = brick(as.character(img_d[,1][j]))
+}
+
+rasters.mosaicargs = rl # object to call with the do.call function that will apply mosaic to all rasters
+rasters.mosaicargs$fun = mean
+
+mos = do.call(mosaic, rasters.mosaicargs) # mos is the mosaic of all rasters of a single date
+
+writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
+}
+
+if(length(img_d[,1])==1){ # if there was a single image, it will still be written as a mosaic, since it is a complete view of the scene
+mos = brick(as.character(img_d[,1][1]))
+
+writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
+}
+}
+
+```
+

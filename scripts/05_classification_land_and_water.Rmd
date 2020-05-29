@@ -199,8 +199,9 @@ writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-46)), overwrite=T)
 ### this 3rd implementation of the hochberg glint correction algorythm includes grouping for band TDI.
 ### EX: for wv02, it seems coastal is timed with NIR2, yellow is timed with red edge, and RGB + NIR1 are timed together.
 
-imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
-deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")
+# imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+imgs = dir("D:/arthur/digitalglobe_archives/destripe/",full.names=T, pattern=".tif$")
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")[7:8]
 tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
 
 # for(i in 1:length(imgs)){
@@ -210,13 +211,9 @@ i=2
   tdi_img = tdi_table[str_detect(as.character(imgs[i]), as.character(tdi_table$id_part)),]
   tdi_img$bands = gsub(" ","",tdi_img$bands)
   tdi_img = subset(tdi_img, tdi_img$bands != "P")
+  tdi_img$tdi = as.numeric(tdi_img$tdi)
   tdis = unique(tdi_img$tdi)
-  
-  if(length(tdis == 4)){
-    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
-  }
-  
-  tdis = unique(tdi_img$tdi)
+
   
   r = brick(imgs[i])
   if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
@@ -225,12 +222,15 @@ i=2
   dz = readOGR(deep_zones[i])
   
   for(k in seq_along(tdis)){
-  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
-
-  rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+    if(length(tdis)==4){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+    }
   
-  dz = spTransform(dz, crs(rs))
-  rdz = readAll(crop(rs,dz))
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+    
+    rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+    dz = spTransform(dz, crs(rs))
+    rdz = readAll(crop(rs,dz))
   
   max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
   max.coords.pixel = SpatialPoints(max.coords)
@@ -254,15 +254,17 @@ i=2
     r2[[b]] = rs[[b]] - fg * Lg[[b]]
   }
   names(r2)=names(rs)
+  
   if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
   
   if(k==length(tdis)){
     r3 = r3[[names(r)]]
-    writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg3/",str_sub(imgs[i],-46)), overwrite=T)
+    # writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg3/",str_sub(imgs[i],-46)), overwrite=T)
+    writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/",str_sub(imgs[i],-46)), overwrite=T)
   } 
-  # }
-}
-
+  }
+# }
+length(tdis)
 ```
 
 

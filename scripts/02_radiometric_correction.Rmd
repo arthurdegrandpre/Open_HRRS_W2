@@ -116,6 +116,7 @@ path_to_images = "//Glaciolab/homes/degranda/MFFP/" # missing part to the path v
 
 for(i in seq_along(pan$X)){
 
+# i=1
 print(paste0(i,"/",length(pan$X))) # to track progress
   
 img = pan[i,] # subset to one image
@@ -158,13 +159,16 @@ Let's visualize the first layer of every product to understand the difference be
 mul_toa_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/toa/MUL/" # PATH TO TOA OUTPUT
 path_to_images = "//Glaciolab/homes/degranda/MFFP/" # missing part to the path variable in image summaries
 
-for(i in seq_along(mul$X)){
+# for(i in seq_along(mul$X)){
+i=25
   print(paste0("image ",i,"/",length(mul$X)))
 
    img = mul[i,]
    r = brick(paste0(path_to_images,img$path))
-   r[r<1]=NA
+   # r[r<1] = NA
+   r = reclassify(r, cbind(-1,1,NA), right=FALSE)
    
+   # hist(r)
    rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
    rctx1 = subset(rctx1, rctx1$bands!="P")
 
@@ -174,14 +178,30 @@ for(i in seq_along(mul$X)){
    r2=r
 
 for(b in 1:length(rctx$bands)){
+  b=2
     print(paste0("band ",b,"/",length(rctx$bands)))
 
-#### Absolute radiometric correction ####
+    #### Absolute radiometric correction ####
 
+    
+  rctx
+    
 r2[[b]] = rctx$gain[b]*r[[b]]*(rctx$abscalfactor[b]/rctx$effectivebandwidth[b])+rctx$offset[b]
-print("ARC")
-# TOA ######################
+hist(na.omit(getValues(r2[[b]])))
 
+  print("ARC")
+# TOA ######################
+# calcEarthSunDist(rctx$date[b])
+#   
+  r32 = (r2*(1.001^2)*pi) / # this gives TOA
+  (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3)* #cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
+     cos(rctx$solar_zenith[b]*pi/180))
+print("TOA")
+#   
+#   
+#   
+#   
+  
 r3 = (r2*(calcEarthSunDist(rctx$date[b])^2)*pi) / # this gives TOA
   (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3)* #cos(zenith(solar(rctx$date[b]),centre_wgs@coords[,1],centre_wgs@coords[,2])*pi/180))
      cos(rctx$solar_zenith[b]*pi/180))
@@ -191,7 +211,7 @@ print("TOA")
 #### NOTE : the following line can be used to write the absolute radiometric calibration product, if needed
 # writeRaster(r2,paste0(mul_arc_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
 
-writeRaster(r3,paste0(mul_toa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1]), overwrite=T)
+writeRaster(r3,paste0(mul_toa_output, as.Date(rctx$date[1]),"test_MUL_",rctx$sats[1],"_",str_sub(img,-29)[1],".tif"), overwrite=T)
 }
 ```
 
