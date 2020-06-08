@@ -196,15 +196,61 @@ rasters.mosaicargs$fun = mean
 
 mos = do.call(mosaic, rasters.mosaicargs) # mos is the mosaic of all rasters of a single date
 
-writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
+writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_ARC_MOSAIC.tif"), overwrite=T)
 }
 
 if(length(img_d[,1])==1){ # if there was a single image, it will still be written as a mosaic, since it is a complete view of the scene
 mos = brick(as.character(img_d[,1][1]))
 
-writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_TOA_MOSAIC.tif"), overwrite=T)
+writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(TOA2[,5])[i],"_ARC_MOSAIC.tif"), overwrite=T)
 }
 }
 
+```
+
+## TOA and BOA 
+
+```{r}
+
+#mul_arc_output = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/radiometric_correction/MUL/" # PATH TO ARC OUTPUT, optionnal
+mul_toa_output = "D:/Arthur/digitalglobe_archives/toa/MUL_fix/" # PATH TO TOA OUTPUT
+mul_boa_output = "D:/Arthur/digitalglobe_archives/boa/MUL/"
+path_to_images = dir("D:/Arthur/digitalglobe_archives/arc/MUL/mosaics/", pattern = ".tif$", full.names = T) # mosaic images to correct
+
+for(i in 1:length(path_to_images)){
+  print(paste0("image ",i,"/",length(path_to_images)))
+
+   img = path_to_images[i]
+   r = brick(img)
+   # r[r<1] = NA
+   r = reclassify(r, cbind(-1,1,NA), right=FALSE)
+   
+   # hist(r)
+   rctx1 = unique(subset(rct, rct$id_part==str_sub(img,-39,-20)))
+   rctx1 = subset(rctx1, rctx1$bands!="P")
+  
+   bands_order = c("C","B","G","Y","R","RE","N1","N")
+   rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
+
+   r2=r
+   r3=r
+
+for(b in 1:length(rctx$bands)){
+  print(paste0("band ",b,"/",length(rctx$bands)))
+
+  # TOA ######################
+  r2[[b]] = (r[[b]]*calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / # this gives TOA
+  (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3)*cos(rctx$solar_zenith[b]*pi/180))
+  r2 = reclassify(r2, cbind(1,Inf,1))
+
+  # BOA ######################
+  r3[[b]] = ((r[[b]]-min(na.omit(getValues(r[[b]]))))*calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / # this gives TOA
+  (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180) * cos(rctx$solar_zenith[b]*pi/180))
+   r3 = reclassify(r3, cbind(1,Inf,1))
+}
+   
+writeRaster(r2,paste0(mul_toa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-50,-20)[1],".tif"), overwrite=T)
+writeRaster(r3,paste0(mul_boa_output, as.Date(rctx$date[1]),"_MUL_",rctx$sats[1],"_",str_sub(img,-50,-20)[1],".tif"), overwrite=T)
+}
 ```
 

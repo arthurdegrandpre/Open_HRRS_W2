@@ -89,12 +89,11 @@ plot(r); plot(new_raster)
 
 ```
 
-New : loop and correct to mean 
+New : loop and correct to mean (much worst) possible fix: first band towards the mean, then correct to the left
 
-
-```{r}
+```{r, eval=F}
 # define paths 
-raster_dir = dir("D:/Arthur/digitalglobe_archives/doscost", pattern=".tif$",full.names=T)
+raster_dir = dir("D:/Arthur/digitalglobe_archives/boa/MUL/", pattern=".tif$",full.names=T)
 
 # images to destripe
 years_to_destripe = c(2009,2013,2016,2017,2018,2019)
@@ -134,12 +133,9 @@ if(nchar(images_to_destripe[i])==4){
 
 
 #### loop ####
-# i=4
-# for(i in 1:length(imgs)){
 
-i=6
-  offset=detector_offset[i]
-  
+for(i in 1:length(imgs)){
+
   # read raster
   r = brick(imgs[i])
   
@@ -151,6 +147,8 @@ i=6
   # load polygon of the first stripe
   stripe = st_read(stripe_path[i])
   stripe = st_transform(stripe, crs(r))
+
+  offset = max(st_coordinates(stripe)[,1])-min(st_coordinates(stripe)[,1])
   
   # load overlapping objects polygon
   overlap = st_read(overlap_path[i])
@@ -208,25 +206,25 @@ i=6
     r2 = cover(rsf,r2)
   }
 writeRaster(r2, paste0("D:/Arthur/digitalglobe_archives/destripe/mean/",gsub(".*doscost/","",imgs[i])), overwrite=T)
-# }
+}
 # dir("D:/Arthur/digitalglobe_archives/water_mask/",pattern=".tif$")
 # plot(r[[5]])
 # plot(r2[[5]])
 # plot(r);plot(r2)
 ```
 
-loop as function (correct to left)
+loop as function (correct to left, adjusted to mean)
 
 ```{r}
 # define paths 
-raster_dir = dir("D:/Arthur/digitalglobe_archives/doscost", pattern=".tif$",full.names=T)
+raster_dir = dir("D:/Arthur/digitalglobe_archives/boa/MUL/", pattern=".tif$",full.names=T)
 
 # images to destripe
 years_to_destripe = c(2009,2013,2016,2017,2018,2019)
 images_to_destripe = c("2009","2013_40_P001","2013_50_P001","2016_20_P002","2016_30_P001","2016_30_P002","2017","2018_10_P001","2018_10_P002","2019_P001","2019_P002")
 
 # stripe distance
-detector_offset = c(2920,2230,2220,2205,2190,2058,1197,1160,1132,1110,1128.5)
+# detector_offset = c(2920,2230,2220,2205,2190,2058,1197,1160,1132,1110,1128.5)
 
 stripe_path = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/destriping/", pattern = "stripe.shp$", full.names = T)
 #remove 2012 since it won't be used
@@ -239,7 +237,6 @@ to_correct = raster_dir[grepl(paste(years_to_destripe, collapse="|"),raster_dir)
 
 imgs = c()
 for(i in 1:length(images_to_destripe)){
-# i=6
 if(nchar(images_to_destripe[i])==4){
   imgs[i]=to_correct[grepl(images_to_destripe[i],to_correct)]} else{
     
@@ -257,13 +254,8 @@ if(nchar(images_to_destripe[i])==4){
 # print(imgs[i])
 }
 
-
 #### loop ####
-# i=4
 for(i in 1:length(imgs)){
-
-  offset=detector_offset[i]
-  
   # read raster
   r = brick(imgs[i])
   
@@ -276,12 +268,20 @@ for(i in 1:length(imgs)){
   stripe = st_read(stripe_path[i])
   stripe = st_transform(stripe, crs(r))
   
+  coords_stripe = st_coordinates(stripe)
+  if(max(coords_stripe[,1])==sort(coords_stripe[,1])[length(coords_stripe[,1])-1]){
+    offset = sort(coords_stripe[,1])[length(coords_stripe[,1])-2]-min(st_coordinates(stripe)[,1])
+    } else{
+    offset = sort(coords_stripe[,1])[length(coords_stripe[,1])-1]-min(st_coordinates(stripe)[,1])
+  }
+  
+  
   # load overlapping objects polygon
   overlap = st_read(overlap_path[i])
   overlap = st_transform(overlap, crs(r))
   
   # calculate number of stripes
-  n_stripes = round(ncol(r)*res(r)[1]/offset)
+  n_stripes = ceiling(ncol(r)*res(r)[1]/offset)
 
   # correct stripe by stripe
   r2 = r
@@ -290,6 +290,7 @@ for(i in 1:length(imgs)){
   # k=3
   for(k in 1:(n_stripes-1)){
     print(paste0("image ",i," of ",length(raster_dir)," for stripe ",k," out of ",n_stripes))
+    
     # clip first image stripe
     stripe1 = stripe
     stripe1 = stripe1 %>% st_cast("POLYGON")
@@ -306,6 +307,34 @@ for(i in 1:length(imgs)){
     if(ncol(zs)>5){zs1 = pivot_longer(zs,1:8)} else{
       zs1 = pivot_longer(zs,1:4)
     }
+    
+    
+    if(k==1){
+      stripe2 = stripe
+      zs2 = zonal.stats(as_Spatial(overlap), r2, stats="mean")
+       if(length(names(r))==8){
+      colnames(zs2) = c("C","B","G","Y","R","RE","N","N2")} else{
+        colnames(zs2) = c("B","G","R","N")}
+    zs2$poly = seq(1:length(zs2[,1])) 
+     if(ncol(zs2)>5){zs2 = pivot_longer(zs2,1:8)} else{
+      zs2 = pivot_longer(zs2,1:4)
+    }
+    
+    # calculate offset table
+    colnames(zs2) = c("poly","name","value2")
+    zs1 = merge(zs1,zs2,all=T)
+    # zs1$value2=zs2$value
+    
+    agg_table = aggregate(zs1[,3:4], list(zs1$name), mean, na.rm=T)
+    agg_table$offset = agg_table$value-agg_table$value2
+    agg_table = agg_table %>% arrange(factor(Group.1, levels = c("C","B","G","Y","R","RE","N","N2")))
+    
+    # apply offset correction 
+    rs2f = rs - agg_table$offset
+    r2 = cover(rs2f,r2)
+    next
+    }
+    
     
     ## compare with next stripe
     # clip next stripe
@@ -338,11 +367,8 @@ for(i in 1:length(imgs)){
     rs2f = rs2 + agg_table$offset
     r2 = cover(rs2f,r2)
   }
-writeRaster(r2, paste0("D:/Arthur/digitalglobe_archives/destripe/",gsub(".*doscost/","",imgs[i])), overwrite=T)
+writeRaster(r2, paste0("D:/Arthur/digitalglobe_archives/destripe/",gsub(".*boa/MUL/","",imgs[i])), overwrite=T)
 }
-# dir("D:/Arthur/digitalglobe_archives/water_mask/",pattern=".tif$")
-# plot(r[[5]])
-# plot(r2[[5]])
-# plot(r);plot(r2)
+
 ```
 
