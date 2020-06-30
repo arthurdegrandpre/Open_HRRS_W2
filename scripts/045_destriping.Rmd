@@ -237,6 +237,7 @@ to_correct = raster_dir[grepl(paste(years_to_destripe, collapse="|"),raster_dir)
 
 imgs = c()
 for(i in 1:length(images_to_destripe)){
+# i=1
 if(nchar(images_to_destripe[i])==4){
   imgs[i]=to_correct[grepl(images_to_destripe[i],to_correct)]} else{
     
@@ -255,7 +256,8 @@ if(nchar(images_to_destripe[i])==4){
 }
 
 #### loop ####
-for(i in 1:length(imgs)){
+# for(i in 1:length(imgs)){
+i=11
   # read raster
   r = brick(imgs[i])
   
@@ -289,7 +291,7 @@ for(i in 1:length(imgs)){
   # n_stripes=3 #used for testing
   # k=3
   for(k in 1:(n_stripes-1)){
-    print(paste0("image ",i," of ",length(raster_dir)," for stripe ",k," out of ",n_stripes))
+    print(paste0("image ",i," of ",length(imgs)," for stripe ",k," out of ",n_stripes))
     
     # clip first image stripe
     stripe1 = stripe
@@ -332,12 +334,24 @@ for(i in 1:length(imgs)){
     # apply offset correction 
     rs2f = rs - agg_table$offset
     r2 = cover(rs2f,r2)
-    next
+    
+    rs = mask(r2, stripe1)
+    
+    # zonal stats in long format
+    zs = zonal.stats(as_Spatial(overlap1), rs, stats="mean")
+    if(length(names(r))==8){
+      colnames(zs) = c("C","B","G","Y","R","RE","N","N2")} else{
+        colnames(zs) = c("B","G","R","N")}
+    zs$poly = seq(1:length(zs[,1]))
+    if(ncol(zs)>5){zs1 = pivot_longer(zs,1:8)} else{
+      zs1 = pivot_longer(zs,1:4)
+    }
     }
     
     
     ## compare with next stripe
     # clip next stripe
+    
     stripe2 = stripe
     stripe2 = stripe2 %>% st_cast("POLYGON")
     stripe2 = st_sf(st_geometry(stripe2)+c(k*offset,0),crs=26918)
@@ -368,7 +382,7 @@ for(i in 1:length(imgs)){
     r2 = cover(rs2f,r2)
   }
 writeRaster(r2, paste0("D:/Arthur/digitalglobe_archives/destripe/",gsub(".*boa/MUL/","",imgs[i])), overwrite=T)
-}
+# }
 
 ```
 

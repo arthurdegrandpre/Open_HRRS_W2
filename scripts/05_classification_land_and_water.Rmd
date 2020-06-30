@@ -50,12 +50,13 @@ library(raster)
 library(tidyverse)
 library(data.table)
 library(sp)
-library(stringr)
+# library(stringr)
 library(rgdal)
 library(randomForest)
 library(spatialEco)
-library(party)
+# library(party)
 library(velox)
+library(GSIF)
 # library(doParallel) # could be added at some point to speedup the process
 # library(foreach) # could be added at some point to speedup the process
 
@@ -82,19 +83,23 @@ input_t_obj = "../data/training_sets" #location of training sets.
 rasters = dir(input_rasters, pattern=".tif$", full.names=T)
 training_objects = dir(input_t_obj, pattern=".gpkg$", full.names=T)
 
+# rasters
+# training_objects
+
 # 8 bands training set
-r = brick(rasters[7])
+r = brick(rasters[3])
 names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
 
-training_objects
-s = readOGR(training_objects[4])
+r = dropLayer(r, "LS1")
+r = dropLayer(r, "LS2")
+
+s = readOGR(training_objects[2])
 s = s[,2:dim(s@data)[2]]
 
 zonal_s = zonal.stats(x = s, y = r, stats = c("min","sd","mean","max"))
 s@data = cbind(s@data,zonal_s)
 
-summary(s@data)
-s2 = s@data[is.finite(rowSums(s@data[,2:85])),]
+s2 = s@data[is.finite(rowSums(s@data[,2:77])),]
 
 rf4 = randomForest(formula = class~.,
                   data = s2,
@@ -126,53 +131,418 @@ rf4
 # head(importance, 10)
 # rf42
 # 8 bands training set
-
+rm(s);rm(s2);rm(importance);rm(zonal_s)
 ```
 
 ## prediction
 
-```{r}
-input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/"
-rasters = dir(input_rasters, pattern=".tif$", full.names=T)
-input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
-output_rasters = "D:/arthur/digitalglobe_archives/water_mask/"
+### Predictions V2 (fast parrallel)
 
-i=8  
-r = brick(rasters[i])
-names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
-objects = dir(input_objects, pattern=".shp$", full.names=T)
+```{r benchmark, eval=F}
 
-psp = readOGR(objects[i])
-psp@data$class = "unknown"
-
-psp = psp[,2:dim(psp@data)[2]]
-
-rv = velox(r)
+t1 = psp[runif(100,1,length(psp)),]
+t2 = psp[runif(1000,1,length(psp)),]
+t3 = psp[runif(10000,1,length(psp)),]
+t4 = psp[runif(100000,1,length(psp)),] # ACTUALLY CRASHES : USE 10000 AS UPPER LIMIT
 
 zonal_psp = data.frame()
 
-extract_psp = as.data.frame(rv$extract(psp, fun=function(x){min(x, na.rm=TRUE)}))
-colnames(extract_psp)=paste0("min.",names(r))
-zonal_psp = rbind(zonal_psp, extract_psp)
+##### benchmark
+library("rbenchmark")
 
-extract_psp = as.data.frame(rv$extract(psp, fun=function(x){max(x, na.rm=TRUE)}))
+benchmark("t100" = {
+  rv$extract(t1, fun=function(x){min(x, na.rm=TRUE)})
+},
+"t1000" = {
+  rv$extract(t2, fun=function(x){min(x, na.rm=TRUE)})
+},
+"t10000" = {
+   rv$extract(t3, fun=function(x){min(x, na.rm=TRUE)})
+},
+# "t100000" = {
+  # rv$extract(t4, fun=function(x)(min(x, na.rm=TRUE)))
+# },
+replications = 3,
+columns = c("test","replications","elapsed","relative","user.self","sys.self")
+)
+
+# faster up to 10000
+```
+
+```{r tiling_function}
+make_tiles <- function(j, tile.tbl, 
+                          out.path.tif = out.path.tif,
+                          out.path.shp = out.path.shp,
+                          source = rasters){
+  
+  out.tif = paste0(out.path.tif, paste0("/T_",j), tile.tbl[j,"ID"], ".tif")
+  out.shp = paste0(out.path.shp, paste0("T_",j), tile.tbl[j,"ID"], ".shp")
+  
+  if(!file.exists(out.tif)){
+    m <- readGDAL(rasters[i], offset=unlist(tile.tbl[j,c("offset.y","offset.x")]),
+                 region.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 output.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 silent = TRUE)
+    
+    if(!all(is.na(m@data[,1]))){
+      writeGDAL(m, out.tif, type="Float32", 
+                options="COMPRESS=DEFLATE")
+      
+      #### and write a shapefile sligthly larger ####
+      shp_tile = tile.lst[j]
+      shp_tile_b = rgeos::gBuffer(shp_tile, width = 25)
+      
+      writeOGR(SpatialPolygonsDataFrame(shp_tile_b, data=data.frame(1:length(shp_tile_b)), match.ID = F),
+               dsn=paste0(out.shp),
+               driver="ESRI Shapefile",
+               layer=paste0("T_",j))
+      
+      ogr2ogr(
+        src_datasource_name=objects[i],
+        dst_datasource_name=out.shp,
+        f="ESRI Shapefile",
+        clipsrc=out.shp,
+        clipdst=out.shp,
+        overwrite = T)
+      
+    }
+  }
+  }
+
+```
+
+```{r write_tiles, eval=F}
+input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/"
+rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+out.path.tif = ("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/")
+out.path.shp = ("D:/arthur/digitalglobe_archives/water_mask/tiles/shp/")
+
+input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
+objects = dir(input_objects, pattern=".shp$", full.names=T)
+
+i=5
+
+obj = GDALinfo(rasters[i])
+tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE)
+tile.tbl = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE)
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores())
+sfExport("make_tiles","tile.tbl","i","out.path.tif","out.path.shp","rasters","tile.lst","objects")
+sfLibrary(rgdal)
+sfLibrary(plyr)
+sfLibrary(rgeos)
+sfLibrary(gdalUtils)
+
+out.lst = sfClusterApplyLB(1:nrow(tile.tbl),
+                           function(x){make_tiles(x, tile.tbl ,out.path.tif, out.path.shp, source = rasters)})
+
+sfStop()
+
+```
+
+```{r classification function 2}
+classify_tiles = function(j,
+                          in.path.r = tifs,
+                          in.path.shp = shps,
+                          out.path.shp.class = output_shps){
+  
+out.shp = paste0(paste0(out.path.shp.class,"/",sub(".tif.*","",sub(".*tif/","",tifs))[j],".shp"))  
+
+r = raster::brick(in.path.r[j])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+
+r = dropLayer(r, "LS1")
+r = dropLayer(r, "LS2")
+
+pc = rgdal::readOGR(in.path.shp[j])
+pc = rgeos::gBuffer(pc, byid=T, width=0)
+pc = crop(pc,r)
+
+zonal_s = zonal.stats(x = pc, y = r, stats = c("min","sd","mean","max"))
+pc2=pc
+pc2@data = cbind(pc@data,zonal_s)
+
+pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:77])),]
+pc2@data$class = "unknown"
+
+pc2@data$class = predict(rf4, pc2@data, type="class")
+pc3 = pc
+pc3@data = merge(pc@data,pc2@data,all=T)
+
+rgdal::writeOGR(pc3,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+}
+
+```
+
+
+```{r classification function, eval=F}
+classify_tiles = function(j,
+                          in.path.r = tifs,
+                          in.path.shp = shps,
+                          out.path.shp.class = output_shps){
+  
+out.shp = paste0(paste0(out.path.shp.class,"/TC_",j,".shp"))  
+
+r = raster::brick(in.path.r[j])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+rv = velox::velox(r)
+
+pc = rgdal::readOGR(in.path.shp[j])
+
+loop_psp = as.data.frame(rv$extract(pc, fun=function(x){min(x, na.rm=TRUE)}))
+colnames(loop_psp)=paste0("min.",names(r))
+# loop_psp = do.call(data.frame,lapply(loop_psp, function(x) replace(x, is.infinite(x),0)))
+pc@data = cbind(loop_psp,pc@data)
+
+loop_psp = as.data.frame(rv$extract(pc, fun=function(x){max(x, na.rm=TRUE)}))
+colnames(loop_psp)=paste0("max.",names(r))
+# loop_psp = do.call(data.frame,lapply(loop_psp, function(x) replace(x, is.infinite(x),1)))
+pc@data = cbind(loop_psp,pc@data)
+                  
+loop_psp = as.data.frame(rv$extract(pc, fun=function(x){mean(x, na.rm=TRUE)}))
+colnames(loop_psp)=paste0("mean.",names(r))
+pc@data = cbind(loop_psp,pc@data)
+                  
+loop_psp = as.data.frame(rv$extract(pc, fun=function(x){sd(x, na.rm=TRUE)}))
+colnames(loop_psp)=paste0("sd.",names(r))
+# loop_psp[is.na(loop_psp)] = 0
+pc@data = cbind(loop_psp,pc@data)
+
+pc2 = sp.na.omit(pc, col.name = "mean.N")
+emptycols <- sapply(pc2@data, function (k) all(is.na(k)))
+pc2@data <- pc2@data[!emptycols]
+
+
+
+pc2@data = pc2@data[is.finite(rowSums(pc2@data[,1:84])),]
+
+pc2@data$class = "unknown"
+test = pc2@data
+test2 = predict(rf4, pc2@data, type="vote")
+summary(test2)
+summary(test2)
+
+test3 = Filter(function(x)!all(is.na(x)), test)
+
+
+
+pc2@data$class = predict(rf4, newdata=pc2@data, type = "vote")
+
+summary(pc2@data)
+rf4$call
+
+rgdal::writeOGR(pc,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+}
+
+```
+
+
+```{r classify_tiles_2}
+
+tifs = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/", full.names=T, recursive=T, pattern=".tif$")
+shps = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/shp/", full.names=T, pattern=".shp$")
+
+input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
+objects = dir(input_objects, pattern=".shp$", full.names=T)
+i=5
+
+output_shps = "D:/arthur/digitalglobe_archives/water_mask/tiles/shp/classified/"
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
+sfExport("tifs","shps","output_shps","classify_tiles","rf4")
+sfLibrary(rgdal)
+sfLibrary(raster)
+sfLibrary(velox)
+sfLibrary(randomForest)
+sfLibrary(spatialEco)
+
+
+out.lst = sfClusterApplyLB(1:length(tifs),
+                           function(x){classify_tiles(x, tifs, shps, output_shps)})
+
+sfStop()
+```
+
+
+```{r classify_tiles, eval=F}
+
+i=5
+
+zonal_psp = data.frame()
+
+tifs = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/", full.names=T, recursive=T, pattern=".tif$")
+shps = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/", full.names=T, recursive=T, pattern=".shp$")
+
+input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
+objects = dir(input_objects, pattern=".shp$", full.names=T)
+
+library(doParallel)
+library(parallel)
+cores = detectCores()
+cl = makeCluster(cores[1])
+registerDoParallel(cl)
+
+zonal_all = foreach(j=1:length(shps),.combine=rbind) %dopar% {
+
+r = raster::brick(tifs[j])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+rv = velox::velox(r)
+
+pc = rgdal::readOGR(shps[j])
+
+
+loop_psp = as.data.frame(rv$extract(pc, fun=function(x){min(x, na.rm=TRUE)}))
+colnames(loop_psp)=paste0("min.",names(r))
+
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){max(x, na.rm=TRUE)}))
 colnames(extract_psp)=paste0("max.",names(r))
-zonal_psp = cbind(zonal_psp, extract_psp)
-
-extract_psp = as.data.frame(rv$extract(psp, fun=function(x){mean(x, na.rm=TRUE)}))
+loop_psp = cbind(loop_psp, extract_psp)
+                  
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){mean(x, na.rm=TRUE)}))
 colnames(extract_psp)=paste0("mean.",names(r))
-zonal_psp = cbind(zonal_psp, extract_psp)
-
-extract_psp = as.data.frame(rv$extract(psp, fun=function(x){sd(x, na.rm=TRUE)}))
+loop_psp = cbind(loop_psp, extract_psp)
+                  
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){sd(x, na.rm=TRUE)}))
 colnames(extract_psp)=paste0("sd.",names(r))
-zonal_psp = cbind(zonal_psp, extract_psp)
+loop_psp = cbind(loop_psp, extract_psp)
 
+row.names(loop_psp) = pc@data$DN
+loop_psp = loop_psp[!apply(is.na(loop_psp) | loop_psp =="", 1, all),]
+
+zonal_psp = rbind(loop_psp, zonal_psp)
+return(loop_psp)
+}
+
+stopCluster(cl)
+
+
+psp = readOGR(objects[i])
 psp2 = psp
-psp2@data = cbind(psp@data,zonal_psp)
-# psp2@data$class="unknown" 
+
+psp2@data = merge(psp2@data,zonal_all, by.x=1, by.y=0)
+
+# psp2@data = psp2@data[order(as.numeric(psp2@data$Row.names)),]
+psp2@data$class="unknown"
 psp2 = sp.na.omit(psp2)
 
 psp2@data$class = predict(rf4, newdata=psp2@data, type = "class")
+colnames(psp2@data)[1]="rowname"
+psp2@data$rowname=as.numeric(psp2@data$rowname)
+writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/landmask_2013_50_P002.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
+```
+
+```{r, eval=F}
+library(rgdal)
+library(GSIF)
+library(foreach)
+library(doParallel)
+
+tiles.tbl = getSpatialTiles(psp, block.x = 500)
+# plot(r[[1]]);plot(test,add=T)
+
+cores = detectCores()
+# cl = makeCluster(cores[1]-2)
+cl = makeCluster(3) #until memory problem is resolved
+registerDoParallel(cl)
+
+zonal_all = foreach(i=1:length(tiles.tbl),.combine=rbind) %dopar% {
+# i=35
+  gc()
+zonal_psp = data.frame()
+rc = raster::crop(r, tiles.tbl[i])
+if(all(is.na(raster::getValues(rc[[1]])))){return(NA)}
+pc = raster::crop(psp, tiles.tbl[i])
+rv = velox::velox(rc)
+
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){min(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("min.",names(r))
+zonal_psp = rbind(zonal_psp, extract_psp)
+
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){max(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("max.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+                  
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){mean(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("mean.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+                  
+extract_psp = as.data.frame(rv$extract(pc, fun=function(x){sd(x, na.rm=TRUE)}))
+colnames(extract_psp)=paste0("sd.",names(r))
+zonal_psp = cbind(zonal_psp, extract_psp)
+
+return(zonal_psp)
+}
+
+stopCluster(cl)
+
+psp2 = psp
+psp2@data = merge(psp2@data,zonal_all, by.x=0, by.y=0)
+psp2@data = psp2@data[order(as.numeric(psp2@data$Row.names)),]
+# psp2@data$class="unknown" 
+psp2 = sp.na.omit(psp2)
+                  
+psp2@data$class = predict(rf4, newdata=psp2@data, type = "class")
+colnames(psp2@data)[1]="rowname"
+psp2@data$rowname=as.numeric(psp2@data$rowname)
+writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/landmask_2013_50_P002.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
+
+```
+
+```{r, eval=F}
+                  input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/"
+                  rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+                  input_objects = "D:/arthur/digitalglobe_archives/segmentation_water/"
+                  output_rasters = "D:/arthur/digitalglobe_archives/water_mask/"
+                  
+                  i=1  
+                  r = brick(rasters[i])
+                  names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+                  objects = dir(input_objects, pattern=".shp$", full.names=T)
+                  
+                  psp = readOGR(objects[i])
+                  psp@data$class = "unknown"
+                  
+                  psp = psp[,2:dim(psp@data)[2]]
+                  
+                  rv = velox(r)
+                  
+                  zonal_psp = data.frame()
+                  
+                  extract_psp = rv$extract(psp, fun=function(x){min(x, na.rm=TRUE)})
+                  extract_psp = as.data.frame(extract_psp)
+                  colnames(extract_psp)=paste0("min.",names(r))
+                  zonal_psp = rbind(zonal_psp, extract_psp)
+                  
+                  extract_psp = as.data.frame(rv$extract(psp, fun=function(x){max(x, na.rm=TRUE)}))
+                  colnames(extract_psp)=paste0("max.",names(r))
+                  zonal_psp = cbind(zonal_psp, extract_psp)
+                  
+                  extract_psp = as.data.frame(rv$extract(psp, fun=function(x){mean(x, na.rm=TRUE)}))
+                  colnames(extract_psp)=paste0("mean.",names(r))
+                  zonal_psp = cbind(zonal_psp, extract_psp)
+                  
+                  extract_psp = as.data.frame(rv$extract(psp, fun=function(x){sd(x, na.rm=TRUE)}))
+                  colnames(extract_psp)=paste0("sd.",names(r))
+                  zonal_psp = cbind(zonal_psp, extract_psp)
+                  
+                  psp2 = psp
+                  psp2@data = cbind(psp@data,zonal_psp)
+                  # psp2@data$class="unknown" 
+                  psp2 = sp.na.omit(psp2)
+                  
+                  psp2@data$class = predict(rf4, newdata=psp2@data, type = "class")
 writeOGR(psp2, dsn="D:/arthur/digitalglobe_archives/water_mask/class_test_2019_2.gpkg", layer="classification",driver="GPKG", overwrite_layer = T)
 
 # note : 2017 was overwritten by 2019.... 
@@ -189,7 +559,7 @@ submerged_mask2 = st_cast(submerged_mask,"POLYGON")
 smask = as_Spatial(submerged_mask2)
 water = mask(r[[1:8]], smask)
 
-writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-46)), overwrite=T)
+writeRaster(water, paste0(output_rasters,str_sub(rasters[i],-35)), overwrite=T)
 
 ```
 

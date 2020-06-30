@@ -17,7 +17,7 @@ This fourth script is used to extract additionnal textural and statistical infor
 
 and specify the installation path here, aswell as allocated RAM (does not need to be a lot) : 
 ```{r OTB config}
-rm(list=ls())
+rm(list=ls()) ; gc()
 
 otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
 otb.ramlimit = 2048 # does not seem to work without changing windows environment variable (not an issue)
@@ -56,8 +56,8 @@ This can be done within any GIS software. We'll use QGIS3
 
 ```{r years_to_fix}
 years = c(2011,2013,2017,2019)
-input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/doscost/"
-output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
+input_dir = "D:/Arthur/digitalglobe_archives/destripe/all/"
+output_dir = "D:/Arthur/digitalglobe_archives/feature_extract/"
 imgs = dir(input_dir,full.names=T, pattern=".tif$")
 
 glint_imgs = as.vector(NULL)
@@ -177,7 +177,7 @@ for(i in seq_along(glint_imgs)){
 feature.LocalStatisticExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-35)),
                            channel = "8",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
@@ -185,7 +185,7 @@ feature.LocalStatisticExtraction(
 feature.EdgeExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-35)),
                            channel = "8",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
@@ -193,7 +193,7 @@ feature.EdgeExtraction(
 feature.HaralickTextureExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-35)),
                            channel = "8",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -208,7 +208,7 @@ feature.HaralickTextureExtraction(
 feature.LocalStatisticExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
-                           name      = paste0("ls_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-35)),
                            channel = "4",   #default 1, selected channel index in input image
                            radius   = "3"  #default 3, computational window radius
                            )
@@ -216,7 +216,7 @@ feature.LocalStatisticExtraction(
 feature.EdgeExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
-                           name      = paste0("ee_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-35)),
                            channel = "4",   #default 1, selected channel index in input image
                            filter   = "gradient"  #default 3, computational window radius
                            )
@@ -224,7 +224,7 @@ feature.EdgeExtraction(
 feature.HaralickTextureExtraction(
                            raster.in = gsub("/","\\\\",glint_imgs[i]),
                            out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
-                           name      = paste0("ht_",str_sub(glint_imgs[i],-46)),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-35)),
                            channel = "4",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -245,7 +245,8 @@ Let's add those features to the BOA image for segmentation.
 
 ```{r, eval=T}
 for(i in seq_along(glint_imgs)){
-  r = brick(glint_imgs[i])
+ 
+ r = brick(glint_imgs[i])
   
   features = c("localstats","edge","haralick")
   
@@ -253,7 +254,7 @@ for(i in seq_along(glint_imgs)){
   r = addLayer(r, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
   }
   
-  writeRaster(r, paste0(output_dir,str_sub(glint_imgs[i],-46)), overwrite=T)
+  writeRaster(r, paste0(output_dir,str_sub(glint_imgs[i],-35)), overwrite=T)
 }
 ```
 
@@ -306,8 +307,8 @@ Segmentation parameters will greatly affect the segmentation quality. If segment
 The output from this section is a simple shapefile
 
 ```{r directories for seg}
-input_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/feature_extract/"
-output_dir = "//Glaciolab/homes/degranda/MFFP/digitalglobe_archives/segmentation_water"
+input_dir = "D:/Arthur/digitalglobe_archives/feature_extract"
+output_dir = "D:/Arthur/digitalglobe_archives/segmentation_water"
 ```
 
 ```{r segmentation, eval=T}
@@ -321,7 +322,7 @@ meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
                filter.meanshift.minsize  = "10",     # default 100
                raster.in = gsub("/","\\\\",imgs[i]),
                out.path  = gsub("/","\\\\",output_dir),
-               name      = str_sub(imgs[i],-46))
+               name      = str_sub(imgs[i],-35))
 
   }
 ```
