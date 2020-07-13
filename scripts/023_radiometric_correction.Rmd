@@ -223,7 +223,7 @@ for(i in 1:length(path_to_images)){
    img = path_to_images[i]
    r = brick(img)
    # r[r<1] = NA
-   r = reclassify(r, cbind(-1,1,NA), right=FALSE)
+   r = reclassify(r, cbind(-1,0,NA), right=FALSE)
    
    # hist(r)
    rctx1 = unique(subset(rct, rct$id_part==str_sub(img,-39,-20)))

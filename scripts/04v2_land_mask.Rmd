@@ -1,0 +1,925 @@
+---
+title: "classification"
+author: "Arthur de Grandpré"
+date: "30 juin 2020"
+output: html_document
+---
+
+This script is to separate terrestrial and aquatic pixels prior to glint correction on images that need it.  
+
+To generate our land mask, we need to classify our images into aquatic and terrestrial habitats.  
+
+Since the data is so heavy, the process has to streamlined in a parallel workflow that limits the memory requirements and allow all cores to participate.  
+
+The classificator training should be made on whole images since it has to represent the whole scene.  
+
+The classification should be made on image tiles, since it is very heaving in terms of computing.
+
+#1. generating the random.forest model
+
+this requires :
+ - the whole image (using previous outputs)  
+ - a whole raster segmentation (using Orfeo ToolBox)  
+ - a training set (using QGIS)  
+
+## 1.1 images to correct
+
+Not all images will require glint correction. This should be evaluated visually by considering wether or not it is believed that sun glint caused by waves can affect the capacity to detect submerged vegetation.
+
+This can be done within any GIS software. We'll use QGIS3.
+
+```{r years_to_fix, eval=T}
+years = c(2011,2013,2017,2019) # years where glint was an issue
+input_dir = "D:/Arthur/digitalglobe_archives/destripe/all/" # path to the de-stripped BOA images
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+glint_imgs = as.vector(NULL)
+
+for(i in seq_along(years)){
+glinty = imgs[grepl(as.character(years[i]),imgs)]
+glint_imgs = append(glint_imgs,glinty)
+}
+
+glint_imgs # path to images to prepare for deglint
+```
+
+those are the 8 images that will be classified.
+
+## 1.2 segmentation
+
+### 1.2.1 feature extraction
+For a better segmentation, additionnal features can be added to the image, such as texture, local statistics and edge extractions. All those layers can be used as additionnal information to delineate objects.
+
+Let's define the feature extraction functions.
+
+```{r localstat function, eval=T}
+#####
+feature.LocalStatisticExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-radius",radius,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_LocalStatisticExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.EdgeExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default gradient, but can be changed for sobel or touzi
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-filter",filter,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_EdgeExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.HaralickTextureExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-texture",texture,
+              "-parameters.min",parameters.min,
+              "-parameters.max",parameters.max,
+              "-parameters.xrad",parameters.xrad,
+              "-parameters.yrad",parameters.yrad,
+              "-parameters.xoff",parameters.xoff,
+              "-parameters.yoff",parameters.yoff,
+              "-parameters.nbbin",parameters.nbbin,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+When calling the functions, sligthly different calls will be made based on wether the image has 4 or 8 bands in order to use the right NIR band.
+
+```{r feature extractions, eval=F}
+output_dir = "D:/Arthur/digitalglobe_archives/feature_extract/"
+
+library(stringr)
+library(raster)
+
+otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
+otb.ramlimit = 2048 # does not seem to work without changing windows environment variable (not an issue)
+
+for(i in seq_along(glint_imgs)){
+
+  r = brick(glint_imgs[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-35)),
+                           channel = "8",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-35)),
+                           channel = "8",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-35)),
+                           channel = "8",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("ls_",str_sub(glint_imgs[i],-35)),
+                           channel = "4",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("ee_",str_sub(glint_imgs[i],-35)),
+                           channel = "4",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",glint_imgs[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("ht_",str_sub(glint_imgs[i],-35)),
+                           channel = "4",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           )
+  }
+  }
+  
+```
+
+Let's add those features to the BOA image befor segmentation.
+
+```{r, eval=F}
+for(i in seq_along(glint_imgs)){
+ 
+ r = brick(glint_imgs[i])
+  
+  features = c("localstats","edge","haralick")
+  
+  for(j in seq_along(features)){
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))
+  }
+  
+  writeRaster(r, paste0(output_dir,str_sub(glint_imgs[i],-35)), overwrite=T)
+}
+```
+
+visual validation
+
+```{r, eval=F}
+initial = dir(input_dir, full.names = T, pattern=".tif")
+final = dir(output_dir, full.names = T, pattern=".tif")
+
+plot(brick(initial[1]), main = "BOA image"); plot(brick(final[1]), main = "BOA + NIR features image")
+
+```
+
+Now that the features have been extracted, we can proceed to segmentation.
+
+## 1.2.2 segmentation
+
+Image segmentation is used to create polygons based on a raster. In this case, we want to use an algorythm able to process large images with a large amount of layers. For this application, we will use OTB's MeanShift segmentation, which can process rapidly very large amounts of multiband data.  
+  
+Those resulting polygons will then be used to classify the image based on object properties instead of pixel values.
+  
+Let's define the segmentation function call to OTB
+
+```{r define segmentation function, eval=T}
+meanshift.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.meanshift.spatialr = "5",   #default 5
+                           filter.meanshift.ranger   = "0.003",  #default 15
+                           filter.meanshift.thres    = "0.001", #default 0.1
+                           filter.meanshift.maxiter  = "100", #default 100
+                           filter.meanshift.minsize  = "10"  #default 100
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+Segmentation parameters will greatly affect the segmentation quality. If segmentation quality seems bad after visual validation, it is possible to change the parameters in the following chunk. The current values are based on simple tweaking and visual cues.
+
+The output from this section is a simple shapefile
+
+```{r directories for seg, eval=F}
+input_dir = "D:/Arthur/digitalglobe_archives/feature_extract"
+output_dir = "D:/Arthur/digitalglobe_archives/segmentation_water"
+```
+
+```{r segmentation, eval=F}
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+ for(i in seq_along(imgs)){
+meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
+               filter.meanshift.ranger   = "0.003",  # default 15
+               filter.meanshift.thres    = "0.001",  # default 0.1
+               filter.meanshift.maxiter  = "100",    # default 100
+               filter.meanshift.minsize  = "10",     # default 100
+               raster.in = gsub("/","\\\\",imgs[i]),
+               out.path  = gsub("/","\\\\",output_dir),
+               name      = str_sub(imgs[i],-35))
+
+  }
+```
+
+### visual validation
+
+```{r, eval=F}
+initial = dir(input_dir, full.names = T, pattern=".tif")
+final = dir(output_dir, full.names = T, pattern=".shp")
+
+plot(brick(initial[1]), main = "BOA image"); plot(readOGR(final[1]), main = "segments")
+plot(brick(initial[1])[[2]], main = "BOA image, zoom B2 + segments", xlim=c(664500,665000),ylim=c(5111500,5112000)); plot(readOGR(final[1]), main = "segments",add=T, xlim=c(664500,665000),ylim=c(5111500,5112000))
+```
+
+
+
+
+#2. classification using the random.forest model  
+
+this requires :  
+ - tiles (using rgdal)  
+ - tile segmentation (using Orfeo ToolBox)  
+ - predictions (using the random.forest model)  
+ - untiling and dissolving (using sf)
+ 
+## 2.1 tiling
+
+Let's define our tiling function so it can be run in parralel without hogging the memory.
+
+```{r tiling_function, eval=T}
+make_tiles <- function(j, tile.tbl, 
+                          out.path.tif = out.path.tif,
+                          source = input_rasters){
+  
+  out.tif = paste0(out.path.tif, paste0("/T_",j), tile.tbl[j,"ID"], ".tif")
+  
+  if(!file.exists(out.tif)){
+    m <- readGDAL(input_rasters[i], offset=unlist(tile.tbl[j,c("offset.y","offset.x")]),
+                 region.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 output.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 silent = TRUE)
+    
+    if(!all(is.na(m@data[,1]))){
+      writeGDAL(m, out.tif, type="Float32", 
+                options="COMPRESS=DEFLATE")
+  }
+  }
+}
+
+```
+
+```{r write_tiles, eval=T}
+library(rgdal)
+library(GSIF)
+input_rasters = glint_imgs
+out.path.tif = ("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/")
+
+i=7
+
+obj = GDALinfo(input_rasters[i])
+tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE)
+tile.tbl = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE)
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores())
+sfExport("make_tiles","tile.tbl","i","out.path.tif","input_rasters","tile.lst")
+sfLibrary(rgdal)
+sfLibrary(plyr)
+sfLibrary(rgeos)
+sfLibrary(gdalUtils)
+
+out.lst = sfClusterApplyLB(1:nrow(tile.tbl),
+                           function(x){make_tiles(x, tile.tbl ,out.path.tif, source = input_rasters)})
+
+sfStop()
+
+```
+
+## 2.2 tile segmentation
+
+## 2.2.1 feature extraction
+```{r feature extractions, eval=T}
+input_tiles = dir(out.path.tif, full.names=T, pattern=".tif$")
+output_dir = "D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/"
+
+otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
+otb.ramlimit = 2048
+
+library(raster)
+
+for(i in seq_along(input_tiles)){
+
+  r = brick(input_tiles[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("ls_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "8",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("ee_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "8",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("ht_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "8",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("ls_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "4",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("ee_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "4",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",input_tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("ht_",sub(".tif.*","",sub(".*tif/","",input_tiles[i]))),
+                           channel = "4",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           )
+  }
+  }
+  
+```
+
+Let's add those features to the BOA image befor segmentation.  
+first: define function for building stacks
+
+# TROUBLESHOOT
+issue : tile 74 has no data for haralick, also check tile 98
+
+```{r, eval=F}
+library(raster)
+library(landscapetools)
+
+i=190 # tile 74
+r = brick(input_tiles[i])
+features = c("localstats","edge","haralick")
+j=1
+r2 = addLayer(r, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
+j=2
+r3 = addLayer(r2, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
+j=3
+r4 = addLayer(r3, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))) 
+
+plot(r[[1:8]])
+plot(r2[[9:12]])
+plot(r3[[13]])
+plot(r4[[14:21]])
+
+# error on haralicks
+
+r = brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])
+summary(r)
+r2 = util_rescale(r)
+?util_rescale()
+plot(r)
+
+# it is an issue with the rescale feature... maybe it isn't necessary
+```
+
+
+```{r eval=T}
+
+add_features = function(i, input_tiles = input_tiles, output_dir = output_dir){
+  r = brick(input_tiles[i])
+  
+  features = c("localstats","edge","haralick")
+  
+  for(j in seq_along(features)){
+  # r = addLayer(r, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
+    r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))
+  }
+  
+  writeRaster(r, paste0(output_dir,sub(".tif.*","",sub(".*tif/","",input_tiles[i])),".tif"), overwrite=T)
+}
+```
+
+then run it in parallel using the snowfall package
+
+```{r, eval=T}
+library(landscapetools)
+library(snowfall)
+library(parallel)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
+sfExport("input_tiles","output_dir","add_features")
+sfLibrary(raster)
+sfLibrary(landscapetools)
+
+out.lst = sfClusterApplyLB(1:length(input_tiles),
+                           function(x){add_features(x,input_tiles, output_dir)})
+
+sfStop()
+```
+
+## 2.2.2 tile segmentation
+
+Let's use the same function and parameters from previously to segment the tiles
+
+```{r directories for seg2, eval=T}
+input_dir = "D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract"
+output_dir = "D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/shps"
+```
+
+```{r segmentation2, eval=T}
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+ for(i in seq_along(imgs)){
+   meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
+               filter.meanshift.ranger   = "0.003",  # default 15
+               filter.meanshift.thres    = "0.001",  # default 0.1
+               filter.meanshift.maxiter  = "100",    # default 100
+               filter.meanshift.minsize  = "10",     # default 100
+               raster.in = gsub("/","\\\\",imgs[i]),
+               out.path  = gsub("/","\\\\",output_dir),
+               name      = sub(".tif.*","",sub(".*feature_extract/","",imgs[i])))
+
+ }
+   
+```
+
+### visual validation
+
+```{r, eval=F}
+initial = dir(input_dir, full.names = T, pattern=".tif")
+final = dir(output_dir, full.names = T, pattern=".shp")
+
+plot(brick(initial[1]), main = "BOA image"); plot(readOGR(final[1]), main = "segments")
+```
+
+# 3. land masking  
+## 3.1 train the classifier
+
+Since random forest is a supervised method of classification, it requires training data. Training data must be manually produced using any GIS software, but here, for open source purposes, we select QGIS. Once a proper training set is built (enough samples of enough classes for every image), whole image classification can be performed.
+
+```{r eval=T}
+input_rasters = "D:/arthur/digitalglobe_archives/feature_extract/" #input BOA images with additionnal features
+input_t_obj = "../data/training_sets" #location of training sets.
+```
+
+```{r zonalstats function, eval=T}
+minx = function(x, na.rm=T){min(x)}
+maxx = function(x, na.rm=T){max(x)}
+meanx = function(x, na.rm=T){if(length(x)==1){return(x)}else{sum(x)/length(x)}}
+sdx = function(x, na.rm=T){if(length(x)==1){return(0)}else{sd(x)}}
+
+
+# zonal_summary = function(x, na.rm=T){
+#   minx = order(as.numeric(x))[1]
+#   maxx = order(as.numeric(x))[length(x)]
+#   if(length(x)==1){
+#     meanx = x[1]
+#     sdx = 0
+#   } else {
+#     meanx = sum(x)/length(x)
+#     sdx = sd(x)
+#   }
+# }
+
+```
+
+
+```{r, eval=T}
+library(spatialEco)
+library(randomForest)
+rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+training_objects = dir(input_t_obj, pattern=".gpkg$", full.names=T)
+
+i=7
+r = brick(rasters[i])
+# must be altered for 4 bands images
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+
+r = dropLayer(r, "LS1")
+r = dropLayer(r, "LS2")
+
+s = readOGR(training_objects[4])
+s = s[,2:dim(s@data)[2]]
+s = spTransform(s, crs(r))
+
+# zonal_s = zonal.stats(x = s, y = r, stats = c("min","sd","mean","max"))
+zonal_s = zonal.stats(x = s, y = r, stats = c("minx","maxx","meanx","sdx"))
+s@data = cbind(s@data,zonal_s)
+
+s2 = s@data[is.finite(rowSums(s@data[,2:77])),]
+
+rf = randomForest(formula = class~.,
+                  data = s2,
+                  proximity = T,
+                  ntree = 20000,
+                  # mtry = 20,
+                  # nodesize = 10,
+                  importance = T)
+
+plot(rf)
+varImpPlot(rf)
+importance = as.data.frame(importance(rf))
+head(importance, 10)
+rf
+
+rm(s);rm(s2);rm(importance);rm(zonal_s)
+
+```
+
+## 3.2 apply the classifier
+
+```{r, eval=T}
+classify_tiles = function(j,
+                          in.path.r = tifs,
+                          in.path.shp = shps,
+                          out.path.shp.class = output_shps){
+
+#   in.path.r = tifs
+#   in.path.shp = shps
+#   out.path.shp.class = output_shps
+# j=1
+  out.shp = paste0(paste0(out.path.shp.class,sub(".tif.*","",sub(".*extract/","",tifs))[j],".shp"))  
+
+r = raster::brick(in.path.r[j])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+
+r = dropLayer(r, "LS1")
+r = dropLayer(r, "LS2")
+
+pc = rgdal::readOGR(in.path.shp[j])
+pc = rgeos::gBuffer(pc, byid=T, width=0)
+pc = raster::crop(pc,r)
+pc = spTransform(pc, crs(r))
+
+# pc
+# plot(pc)
+
+zonal_s = spatialEco::zonal.stats(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+pc2=pc
+pc2@data = cbind(pc@data,zonal_s)
+
+pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:77])),]
+pc2@data$class = "unknown"
+
+pc2@data$class = predict(rf, pc2@data, type="class")
+pc3 = pc
+pc3@data = merge(pc@data,pc2@data,all=T)
+
+rgdal::writeOGR(pc3,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+}
+
+```
+
+```{r classify_tiles, eval=T}
+
+tifs = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/", full.names=T, recursive=F, pattern=".tif$")
+shps = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/shps/", full.names=T, pattern=".shp$")
+
+i=7
+
+output_shps = "D:/arthur/digitalglobe_archives/water_mask/tiles/classified/"
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
+sfExport("tifs","shps","output_shps","classify_tiles","rf","minx","maxx","meanx","sdx")
+sfLibrary(rgdal)
+sfLibrary(raster)
+sfLibrary(randomForest)
+sfLibrary(spatialEco)
+sfLibrary(rgeos)
+sfLibrary(sp)
+
+out.lst = sfClusterApplyLB(1:length(tifs),
+                           function(x){classify_tiles(x, tifs, shps, output_shps)})
+
+sfStop()
+```
+
+```{r, eval=T}
+library(sf)
+library(tidyverse)
+
+cs = dir(output_shps, pattern=".shp$",full.names=T)
+
+mosaic_shps = function(u,cs){
+  s = st_read(cs[u])
+  diss = s %>% 
+    group_by(class) %>% 
+    summarise() %>% 
+    st_buffer(0)
+}
+
+library(doParallel)
+library(foreach)
+
+cl=parallel::makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+m = foreach(u=1:length(cs), .combine=rbind, .packages=c("sf","tidyverse")) %dopar% {
+  mosaic_shps(u, cs)
+}
+
+stopCluster(cl)
+
+plot(m)
+st_write(m,
+         "D:/Arthur/digitalglobe_archives/water_mask/landmask_2019_10_P001.gpkg",
+         driver="GPKG",
+         delete_dsn=T)
+glint_imgs
+```
+
+### TROUBLESHOOT
+
+there are some tiles that remain empty after classification
+let's identify the bad tiles
+
+```{r, eval=F}
+library(sf)
+tiles = SpatialPolygonsDataFrame(tile.lst, data=data.frame(c(1:length(tile.lst@polygons))))
+tt = spTransform(tiles, CRS("+init=epsg:4326"))
+
+tt2 = st_transform(m, CRS("+init=epsg:4326"))
+
+centers <- data.frame(gCentroid(tt, byid = TRUE))
+centers$ID = row.names(tt)
+library(leaflet)
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=tt2) %>% 
+  addLabelOnlyMarkers(data=centers,
+                      label=~ID,
+                      lng=~x,
+                      lat=~y,
+                      labelOptions = labelOptions(noHide = TRUE,
+                                                  direction = 'top',
+                                                  textOnly = TRUE))
+
+#some tiles to check : 368 for NA
+```
+
+
+```{r, eval=F}
+
+tifs = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/", full.names=T, recursive=F, pattern=".tif$")
+shps = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/shps/", full.names=T, pattern=".shp$")
+
+i=1
+
+output_shps = "D:/arthur/digitalglobe_archives/water_mask/tiles/classified/"
+
+
+in.path.r = tifs
+in.path.shp = shps
+out.path.shp.class = output_shps
+
+in.path.r
+  j=168 #368
+out.shp = paste0(paste0(out.path.shp.class,sub(".tif.*","",sub(".*extract/","",tifs))[j],".shp"))  
+
+r = raster::brick(in.path.r[j])
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
+
+r = dropLayer(r, "LS1")
+r = dropLayer(r, "LS2")
+
+pc = rgdal::readOGR(in.path.shp[j])
+pc = rgeos::gBuffer(pc, byid=T, width=0)
+pc = crop(pc,r)
+
+summary(r)
+plot(pc)
+# test using exact_extract (seems to be the same)
+# https://cran.r-project.org/web/packages/exactextractr/readme/README.html
+install.packages("exactextractr")
+library(exactextractr)
+
+
+spc = st_read(in.path.shp[j]) %>% st_buffer(0)
+zonal_s = exact_extract(r,spc, c("min","max","mean","stdev"))
+
+rt = r
+rt = brick(r)
+rt[is.na(rt[])] <- 1000 
+plot(rt[[8]]) # a lot of actual NAs
+
+
+
+
+zonal_s = zonal.stats(x = pc, y = r, stats = c("minx","sdx","meanx","maxx"))
+pc2=pc
+pc2@data = cbind(pc@data,zonal_s)
+
+summary(zonal_s)
+dim(pc@data)
+dim(pc2@data)
+
+# pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:77])),]
+pc2@data$class = "unknown"
+
+plot(r[[1]])
+hist(r[[1]])
+
+pc2@data$class = predict(rf, pc2@data, type="class", na.action=na.pass)
+pc3 = pc
+pc3@data = merge(pc@data,pc2@data,all=T)
+
+factpal <- colorFactor(topo.colors(5), pc3@data$class)
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=spTransform(pc3,CRS=("+init=epsg:4326")),
+              color =~factpal(class)) %>% 
+  addLegend(pal=factpal,
+            values=pc3@data$class)
+
+rgdal::writeOGR(pc3,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+
+  s = st_read(cs[j])
+  diss = s %>% 
+    group_by(class) %>% 
+    summarise() %>% 
+    st_cast("POLYGON")
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=st_transform(s, CRS("+init=epsg:4326")),
+              color=~factpal(class))
+
+### THE ISSUE IS WITH THE DISSOLVE METHOD
+plot(s)
+diss = s %>% 
+    group_by(class) %>% 
+    summarise() %>%
+    st_buffer(0) #adding this resolves some polygons
+    # st_cast("POLYGON") # the cast still wipes some polygons...
+
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=st_transform(diss, CRS("+init=epsg:4326")),
+              color=~factpal(class),stroke="transparent")
+
+```
+
+tile368 : lots of NAs, where do they come from?
+
+```{r, eval=F}
+v = brick("D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/T_368.tif")
+v[is.na(v)] <- 1000 
+plot(v[[8]]) # a lot of actual NAs
+test = v[[8]]
+test[is.na(test)] = 1000
+t2 = crop(test,r)
+plot(t2)
+
+
+v = brick("D:/Arthur/digitalglobe_archives/destripe/all/2011-06-03_MUL_WV02_2011-06-03_010623053070_01_P001.tif")
+plot(v[[8]]) # a lot of actual NAs
+test = v[[8]]
+test[is.na(test)] = 1000
+t2 = crop(test,r)
+plot(t2)
+
+
+v = brick("D:/Arthur/digitalglobe_archives/boa/MUL/2011-06-03_MUL_WV02_2011-06-03_010623053070_01_P001.tif")
+plot(v[[8]])
+test = v[[8]]
+test[is.na(test)] = 1000
+t2 = crop(test,r)
+plot(t2)
+
+v = brick("D:/Arthur/digitalglobe_archives/arc/MUL/mosaics/2011-06-03_010623053070_01_P001.TIF_TOA_MOSAIC.tif")
+test = v[[8]]
+test[is.na(test)] = 1000
+t2 = crop(test,r)
+plot(t2)
+
+# FROM TOA TO BOA, NA appears
+```
+

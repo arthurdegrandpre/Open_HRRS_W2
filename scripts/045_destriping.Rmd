@@ -256,8 +256,8 @@ if(nchar(images_to_destripe[i])==4){
 }
 
 #### loop ####
-# for(i in 1:length(imgs)){
-i=11
+for(i in 7:length(imgs)){
+# i=11
   # read raster
   r = brick(imgs[i])
   
@@ -382,7 +382,7 @@ i=11
     r2 = cover(rs2f,r2)
   }
 writeRaster(r2, paste0("D:/Arthur/digitalglobe_archives/destripe/",gsub(".*boa/MUL/","",imgs[i])), overwrite=T)
-# }
+}
 
 ```
 
