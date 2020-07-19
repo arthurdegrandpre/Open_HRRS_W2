@@ -358,7 +358,7 @@ library(GSIF)
 input_rasters = glint_imgs
 out.path.tif = ("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/")
 
-i=7
+i=8
 
 obj = GDALinfo(input_rasters[i])
 tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE)
@@ -466,40 +466,6 @@ feature.HaralickTextureExtraction(
 Let's add those features to the BOA image befor segmentation.  
 first: define function for building stacks
 
-# TROUBLESHOOT
-issue : tile 74 has no data for haralick, also check tile 98
-
-```{r, eval=F}
-library(raster)
-library(landscapetools)
-
-i=190 # tile 74
-r = brick(input_tiles[i])
-features = c("localstats","edge","haralick")
-j=1
-r2 = addLayer(r, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
-j=2
-r3 = addLayer(r2, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])))
-j=3
-r4 = addLayer(r3, util_rescale(brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))) 
-
-plot(r[[1:8]])
-plot(r2[[9:12]])
-plot(r3[[13]])
-plot(r4[[14:21]])
-
-# error on haralicks
-
-r = brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i])
-summary(r)
-r2 = util_rescale(r)
-?util_rescale()
-plot(r)
-
-# it is an issue with the rescale feature... maybe it isn't necessary
-```
-
-
 ```{r eval=T}
 
 add_features = function(i, input_tiles = input_tiles, output_dir = output_dir){
@@ -567,6 +533,7 @@ initial = dir(input_dir, full.names = T, pattern=".tif")
 final = dir(output_dir, full.names = T, pattern=".shp")
 
 plot(brick(initial[1]), main = "BOA image"); plot(readOGR(final[1]), main = "segments")
+plot(brick(initial[1])[[1]]); plot(readOGR(final[1]), add=T)
 ```
 
 # 3. land masking  
@@ -580,10 +547,10 @@ input_t_obj = "../data/training_sets" #location of training sets.
 ```
 
 ```{r zonalstats function, eval=T}
-minx = function(x, na.rm=T){min(x)}
-maxx = function(x, na.rm=T){max(x)}
-meanx = function(x, na.rm=T){if(length(x)==1){return(x)}else{sum(x)/length(x)}}
-sdx = function(x, na.rm=T){if(length(x)==1){return(0)}else{sd(x)}}
+minx = function(x, na.rm=T){min(x,na.rm=T)}
+maxx = function(x, na.rm=T){max(x, na.rm=T)}
+meanx = function(x, na.rm=T){if(length(x)==1){return(x)}else{sum(x, na.rm=T)/length(x)}}
+sdx = function(x, na.rm=T){if(length(x)==1){return(0)}else{sd(x,na.rm=T)}}
 
 
 # zonal_summary = function(x, na.rm=T){
@@ -646,6 +613,35 @@ rm(s);rm(s2);rm(importance);rm(zonal_s)
 ## 3.2 apply the classifier
 
 ```{r, eval=T}
+zonal.stats.small = function (x, y, stats = c("min", "mean", "max")) 
+{
+    if (class(y) != "RasterLayer" & class(y) != "RasterStack" & 
+        class(y) != "RasterBrick") 
+        stop("y must be a raster (layer, stack, brick) class object")
+    if (class(x) != "SpatialPolygonsDataFrame") 
+        stop("x must be a SpatialPolygonsDataFrame object")
+    rvx <- velox::velox(y)
+    ldf <- rvx$extract(sp = x, small=T)
+    names(ldf) <- row.names(x)
+    stats.fun <- function(x, m = stats) {
+        slist <- list()
+        for (i in 1:length(m)) {
+            slist[[i]] <- apply(x, MARGIN = 2, m[i], na.rm = TRUE)
+        }
+        return(as.data.frame(t(unlist(slist))))
+    }
+    results <- lapply(ldf, FUN = stats.fun)
+    results <- do.call("rbind", results)
+    rn <- vector()
+    for (n in stats) {
+        rn <- append(rn, paste(n, names(y), sep = "."))
+    }
+    names(results) <- rn
+    return(results)
+}
+```
+
+```{r, eval=T}
 classify_tiles = function(j,
                           in.path.r = tifs,
                           in.path.shp = shps,
@@ -662,17 +658,30 @@ names(r) = c("C","B","G","Y","R","RE","N1","N","LS1","LS2","LS3","LS4","EE","HA1
 
 r = dropLayer(r, "LS1")
 r = dropLayer(r, "LS2")
+r = approxNA(r)
+names(r) = c("C","B","G","Y","R","RE","N1","N","LS3","LS4","EE","HA1","HA2","HA3","HA4","HA5","HA6","HA7","HA8")
 
 pc = rgdal::readOGR(in.path.shp[j])
 pc = rgeos::gBuffer(pc, byid=T, width=0)
 pc = raster::crop(pc,r)
-pc = spTransform(pc, crs(r))
+pc = pc[order(pc$DN),]
 
-# pc
-# plot(pc)
+# View(pc@data)
+# r = projectRaster(r, crs="+init=epsg:32618")
+# pc = spTransform(pc, "+init=epsg:32618")
 
-zonal_s = spatialEco::zonal.stats(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+# plot(r[[1]]);plot(pc,add=T)
+
+# zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+
+# test = pc[order(pc$DN),]
+
+# rownames(zonal_s)=as.numeric(rownames(zonal_s))+1
+
 pc2=pc
+
+# pc2@data = merge(pc@data,zonal_s, by.x="DN",by.y="row.names")
 pc2@data = cbind(pc@data,zonal_s)
 
 pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:77])),]
@@ -696,14 +705,14 @@ rgdal::writeOGR(pc3,
 tifs = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/", full.names=T, recursive=F, pattern=".tif$")
 shps = dir("D:/arthur/digitalglobe_archives/water_mask/tiles/tif/feature_extract/shps/", full.names=T, pattern=".shp$")
 
-i=7
+i=8
 
 output_shps = "D:/arthur/digitalglobe_archives/water_mask/tiles/classified/"
 
 library(snowfall)
 
 sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
-sfExport("tifs","shps","output_shps","classify_tiles","rf","minx","maxx","meanx","sdx")
+sfExport("tifs","shps","output_shps","classify_tiles","rf","minx","maxx","meanx","sdx","zonal.stats.small")
 sfLibrary(rgdal)
 sfLibrary(raster)
 sfLibrary(randomForest)
@@ -745,7 +754,7 @@ stopCluster(cl)
 
 plot(m)
 st_write(m,
-         "D:/Arthur/digitalglobe_archives/water_mask/landmask_2019_10_P001.gpkg",
+         "D:/Arthur/digitalglobe_archives/water_mask/landmask_2019_10_P002.gpkg",
          driver="GPKG",
          delete_dsn=T)
 glint_imgs
@@ -796,7 +805,7 @@ in.path.shp = shps
 out.path.shp.class = output_shps
 
 in.path.r
-  j=168 #368
+  j=1 #368
 out.shp = paste0(paste0(out.path.shp.class,sub(".tif.*","",sub(".*extract/","",tifs))[j],".shp"))  
 
 r = raster::brick(in.path.r[j])
@@ -809,8 +818,11 @@ pc = rgdal::readOGR(in.path.shp[j])
 pc = rgeos::gBuffer(pc, byid=T, width=0)
 pc = crop(pc,r)
 
-summary(r)
-plot(pc)
+
+test = raster::extract(r, pc, method='simple',fun='mean', na.rm=T)
+?zonal
+
+
 # test using exact_extract (seems to be the same)
 # https://cran.r-project.org/web/packages/exactextractr/readme/README.html
 install.packages("exactextractr")
@@ -819,6 +831,7 @@ library(exactextractr)
 
 spc = st_read(in.path.shp[j]) %>% st_buffer(0)
 zonal_s = exact_extract(r,spc, c("min","max","mean","stdev"))
+summary(zonal_s)
 
 rt = r
 rt = brick(r)
@@ -890,8 +903,20 @@ leaflet() %>%
 tile368 : lots of NAs, where do they come from?
 
 ```{r, eval=F}
-v = brick("D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/T_368.tif")
+
+v = r 
+
+
+v = brick("D:/Arthur/digitalglobe_archives/water_mask/tiles/tif/T_1.tif")
 v[is.na(v)] <- 1000 
+plot(v[[11]]) # a lot of actual NAs
+test = v[[8]]
+test[is.na(test)] = 1000
+t2 = crop(test,r)
+plot(t2)
+
+
+v = brick("D:/Arthur/digitalglobe_archives/destripe/all/2019-08-02_MUL_WV03_2019-08-02_010577871010_01_P001.tif")
 plot(v[[8]]) # a lot of actual NAs
 test = v[[8]]
 test[is.na(test)] = 1000
@@ -899,15 +924,7 @@ t2 = crop(test,r)
 plot(t2)
 
 
-v = brick("D:/Arthur/digitalglobe_archives/destripe/all/2011-06-03_MUL_WV02_2011-06-03_010623053070_01_P001.tif")
-plot(v[[8]]) # a lot of actual NAs
-test = v[[8]]
-test[is.na(test)] = 1000
-t2 = crop(test,r)
-plot(t2)
-
-
-v = brick("D:/Arthur/digitalglobe_archives/boa/MUL/2011-06-03_MUL_WV02_2011-06-03_010623053070_01_P001.tif")
+v = brick("D:/Arthur/digitalglobe_archives/boa/MUL/2019-08-02_MUL_WV03_2019-08-02_010577871010_01_P001.tif")
 plot(v[[8]])
 test = v[[8]]
 test[is.na(test)] = 1000
