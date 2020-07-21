@@ -1,0 +1,220 @@
+---
+title: "05v2_glint_correction"
+author: "Arthur de Grandpré"
+date: "19 juillet 2020"
+output: html_document
+---
+
+```{r setup}
+rm(list=ls())
+gc()
+
+library(raster)
+library(parallel)
+library(snowfall)
+library(sf)
+library(tidyverse)
+```
+
+
+# 1. mask terrestrial polygons
+
+note : classes may differ for every different training sets ... 
+
+```{r years_to_fix, eval=T}
+years = c(2011,2013,2017,2019) # years where glint was an issue
+input_dir = "D:/Arthur/digitalglobe_archives/destripe/all/" # path to the de-stripped BOA images
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+glint_imgs = as.vector(NULL)
+
+for(i in seq_along(years)){
+glinty = imgs[grepl(as.character(years[i]),imgs)]
+glint_imgs = append(glint_imgs,glinty)
+}
+
+glint_imgs # path to images to prepare for deglint
+```
+
+```{r}
+r2011 = c("water_brown","water_dark","water_green","water_shadow","water_shallow")
+
+r2013 = c("veg_submerged","water_blue","water_clear","water_shallow")
+
+r2017 = c("veg_submerged","water_blue","water_brown","water_dark","water_shallow","water_white")
+
+r2019 = c("shallow_water","veg_submerged","water_clear","water_deep","water_shallow")
+```
+
+```{r}
+p_class = dir("D:/arthur/digitalglobe_archives/water_mask/",pattern=".gpkg$",full.names=T)
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")
+tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
+deglint_out = "D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/"
+
+ydf = data.frame(1:8)
+ydf = cbind(ydf, c(2011,2013,2013,2013,2013,2017,2019,2019))
+colnames(ydf)=c("index","year")
+
+for(i in 3:length(p_class)){
+  
+r = brick(glint_imgs[i])
+cs = st_read(p_class[i])
+
+if(ydf[i,2]==2011){
+  rules = r2011
+  }
+
+if(ydf[i,2]==2013){
+  rules = r2013
+}
+
+if(ydf[i,2]==2017){
+  rules = r2017
+}
+
+if(ydf[i,2]==2019){
+  rules = r2019
+}
+
+wm = cs %>% 
+  filter(class %in% rules) %>% 
+  st_union() %>% 
+  st_cast("POLYGON")
+
+r = mask(r,as_Spatial(wm))
+
+# glint correction
+
+tdi_img = tdi_table[str_detect(as.character(glint_imgs[i]), as.character(tdi_table$id_part)),]
+tdi_img$bands = gsub(" ","",tdi_img$bands)
+tdi_img = subset(tdi_img, tdi_img$bands != "P")
+tdi_img$tdi = as.numeric(tdi_img$tdi)
+tdis = unique(tdi_img$tdi)
+
+if(length(tdis)==4){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+  }
+
+tdis = unique(tdi_img$tdi)
+
+if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
+if(nlayers(r)==4){names(r) = c("B","G","R","N")}
+  
+dz = readOGR(deep_zones[i])
+  
+for(k in seq_along(tdis)){
+  
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+    
+  rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+  dz = spTransform(dz, crs(rs))
+  rdz = readAll(crop(rs,dz))
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
+  
+  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
+  
+  Lg = list()
+  
+  r2 = rs
+
+  for(b in 1:nlayers(rs)){
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = rs[[b]] - fg * Lg[[b]]
+  }
+
+  names(r2)=names(rs)
+  
+  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
+  
+  if(k==length(tdis)){
+    r3 = r3[[names(r)]]
+    writeRaster(r3, paste0(deglint_out,str_sub(glint_imgs[i],-55)), overwrite=T)
+  } 
+}
+}
+
+```
+
+
+
+```{r hochberg_v3, eval=F}
+### this 3rd implementation of the hochberg glint correction algorythm includes grouping for band TDI.
+### EX: for wv02, it seems coastal is timed with NIR2, yellow is timed with red edge, and RGB + NIR1 are timed together.
+
+# imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
+imgs = dir("D:/arthur/digitalglobe_archives/destripe/",full.names=T, pattern=".tif$")
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")[7:8]
+tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
+
+# for(i in 1:length(imgs)){
+i=2
+  print(paste0("image ",i," out of ",length(imgs)))
+
+  tdi_img = tdi_table[str_detect(as.character(imgs[i]), as.character(tdi_table$id_part)),]
+  tdi_img$bands = gsub(" ","",tdi_img$bands)
+  tdi_img = subset(tdi_img, tdi_img$bands != "P")
+  tdi_img$tdi = as.numeric(tdi_img$tdi)
+  tdis = unique(tdi_img$tdi)
+
+  
+  r = brick(imgs[i])
+  if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
+  if(nlayers(r)==4){names(r) = c("B","G","R","N")}
+  
+  dz = readOGR(deep_zones[i])
+  
+  for(k in seq_along(tdis)){
+    if(length(tdis)==4){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+    }
+  
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+    
+    rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+    dz = spTransform(dz, crs(rs))
+    rdz = readAll(crop(rs,dz))
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
+  
+  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
+  
+  Lg = list()
+  
+  r2 = rs
+
+  for(b in 1:nlayers(rs)){
+    print(b)
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = rs[[b]] - fg * Lg[[b]]
+  }
+  names(r2)=names(rs)
+  
+  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
+  
+  if(k==length(tdis)){
+    r3 = r3[[names(r)]]
+    # writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg3/",str_sub(imgs[i],-46)), overwrite=T)
+    writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/",str_sub(imgs[i],-46)), overwrite=T)
+  } 
+  }
+# }
+length(tdis)
+```
