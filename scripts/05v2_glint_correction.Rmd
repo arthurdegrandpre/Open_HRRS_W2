@@ -145,76 +145,30 @@ for(k in seq_along(tdis)){
 
 ```
 
+```{r}
+input_dir = "D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/"
+output_dir = "D:/arthur/digitalglobe_archives/ready_mosaics/"
 
+dir(input_dir,full.names=T,pattern=".tif$")
 
-```{r hochberg_v3, eval=F}
-### this 3rd implementation of the hochberg glint correction algorythm includes grouping for band TDI.
-### EX: for wv02, it seems coastal is timed with NIR2, yellow is timed with red edge, and RGB + NIR1 are timed together.
+for(i in 1:length(glint_imgs)){
+  # i=1
+  r1 = brick(dir(input_dir,full.names=T,pattern=".tif$")[i])
+  r2 = brick(glint_imgs[i])
 
-# imgs = dir("D:/arthur/digitalglobe_archives/water_mask/",full.names=T, pattern=".tif$")
-imgs = dir("D:/arthur/digitalglobe_archives/destripe/",full.names=T, pattern=".tif$")
-deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")[7:8]
-tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
-
-# for(i in 1:length(imgs)){
-i=2
-  print(paste0("image ",i," out of ",length(imgs)))
-
-  tdi_img = tdi_table[str_detect(as.character(imgs[i]), as.character(tdi_table$id_part)),]
-  tdi_img$bands = gsub(" ","",tdi_img$bands)
-  tdi_img = subset(tdi_img, tdi_img$bands != "P")
-  tdi_img$tdi = as.numeric(tdi_img$tdi)
-  tdis = unique(tdi_img$tdi)
-
-  
-  r = brick(imgs[i])
-  if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
-  if(nlayers(r)==4){names(r) = c("B","G","R","N")}
-  
-  dz = readOGR(deep_zones[i])
-  
-  for(k in seq_along(tdis)){
-    if(length(tdis)==4){
-    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+  for(j in 1:nlayers(r1)){
+    if(max(getValues(r1[[j]]), na.rm=T) == min(getValues(r1[[j]]), na.rm=T)){
+      r1[[j]]=r2[[j]]  
     }
-  
-  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
-    
-    rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
-    dz = spTransform(dz, crs(rs))
-    rdz = readAll(crop(rs,dz))
-  
-  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
-  max.coords.pixel = SpatialPoints(max.coords)
-  max.pixel = raster::extract(rdz,max.coords.pixel)
-  
-  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
-  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
-  min.pixel = raster::extract(rdz,min.coords.pixel)
-  
-  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
-  
-  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
-  
-  Lg = list()
-  
-  r2 = rs
+  }
 
-  for(b in 1:nlayers(rs)){
-    print(b)
-    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
-    r2[[b]] = rs[[b]] - fg * Lg[[b]]
-  }
-  names(r2)=names(rs)
+  # r3 = merge(r1,r2)
+  r3 = mosaic(r1,r2, fun=min)
   
-  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
   
-  if(k==length(tdis)){
-    r3 = r3[[names(r)]]
-    # writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg3/",str_sub(imgs[i],-46)), overwrite=T)
-    writeRaster(r3, paste0("D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/",str_sub(imgs[i],-46)), overwrite=T)
-  } 
-  }
-# }
-length(tdis)
+  if(nlayers(r1)==8){names(r3) = c("C","B","G","Y","R","RE","N","N2")}
+  if(nlayers(r1)==4){names(r3) = c("B","G","R","N")}
+  writeRaster(r3, paste0(output_dir,str_sub(glint_imgs[i],-55)), overwrite=T)
+}
 ```
+
