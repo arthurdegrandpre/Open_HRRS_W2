@@ -1,0 +1,422 @@
+---
+title: "00_segmentation_exploration"
+author: "Arthur de Grandpré"
+date: "28 septembre 2020"
+output: html_document
+---
+
+```{r setup}
+rm(list=ls())
+gc()
+
+otb.path = "C:\\OTB-7.0.0-Win64\\bin"
+
+library(raster)
+library(sf)
+library(rgdal)
+```
+
+
+Let's explore the options for segmentation and their performance.  
+
+The two main open source algorithms would be OTB's watershed (singleband) or Meanshift (multiband).  
+
+For watershed segmentation, the band or index choice would be very important. Based on the multispectral data, it would have to be a high penetration band or VI. Otherwise, the panchromatic band could be another option.
+
+For Meanshift, different band combinations could be used, and the settings would have to be tuned very carefully.
+
+# test data subset
+
+Let's cut a region from the 2009 quickbird 2.4m resolution image. It needs to include both terrestrial vegetation and submerged vegetation for a full range of values.
+
+```{r}
+images_dir = "D:/Arthur/digitalglobe_archives/ready_mosaics"
+subset_polygon = st_read("../data/segtest/seg_test.shp")
+
+images = dir(images_dir,
+             pattern = ".tif$",
+             full.names = T)
+r = brick(images[1])
+
+plotRGB(r,
+        r = 3, g = 2, b = 1,
+        stretch = "hist")
+
+plot(subset_polygon, add=T)
+
+for(i in 1:nrow(subset_polygon)){
+# i=1
+  cr = mask(r, subset_polygon[i,])
+  cr = crop(cr, subset_polygon[i,])
+  plotRGB(cr,
+          r=3, g=2, b=1,
+          stretch="hist")
+  
+  cr = reclassify(cr, cbind(NA, 10)) 
+  
+  writeRaster(cr, paste0("../data/segtest/rasters/cr",i,".tif"), overwrite=T)
+}
+
+```
+
+IMPORTANT NOTE : NODATA VALUES WERE SET TO 10 IN ORDER TO LET WATERSHED SEGMENTATION WORK
+
+# Watershed single band
+
+## function setup
+
+This function calls OTB's Watershed segmentation from the windows command line without leaving the R environment. It allows all parameters to be adjusted from R and writes the results with a config text file in an ouptut folder.
+
+```{r define meanshift segmentation function, eval=T}
+watershed.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.watershed.threshold = "0.01",   #default 0.01
+                           filter.watershed.level = "0.1"  #default 0.1
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,
+              "-filter watershed",
+              "-filter.watershed.threshold",filter.watershed.threshold,
+              "-filter.watershed.level",filter.watershed.level,
+              "-mode vector",
+              "-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+}
+```
+
+### parameters calibration + blue band segmentation
+
+Since the documentation regarding the two watershed parameters (threshold and level) is very limited, both parameters will be estimated by trial and error using the first band of the multispectral image (blue). 
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+i=1
+
+
+threshold = c(0.5,0.1,0.01,0.001,0.0001,0.00001,0.000001)
+level = c(0.5, 0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+for(k in level){
+ for(j in threshold){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i),
+               filter.watershed.threshold = paste0(j),
+               filter.watershed.level = paste0(k))
+
+results = dir(out,pattern=".shp$",full.names=T)
+
+# r = brick(cr_dir[i])
+seg = st_read(results[i])
+plot(seg) 
+}
+}
+
+```
+the first 4 levels of threshold are useless just as the first 2 levels of flood are useless.
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+i=1
+
+
+threshold = c(0.001,0.0001,0.00001,0.000001)
+level = c(0.01, 0.001, 0.0001, 0.00001, 0.000001)
+for(k in level){
+ for(j in threshold){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i),
+               filter.watershed.threshold = paste0(j),
+               filter.watershed.level = paste0(k))
+
+results = dir(out,pattern=".shp$",full.names=T)
+
+# r = brick(cr_dir[i])
+seg = st_read(results[i])
+plot(seg) 
+}
+}
+```
+
+the second settings from threshold appear to be roughly the most reliable accross the scene
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+i=1
+
+
+threshold = c(0.001,0.0001,0.00001)
+level = c(0.01, 0.001, 0.0001, 0.00001, 0.000001)
+for(k in seq_along(level)){
+ for(j in seq_along(threshold)){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i,"_",j,k),
+               filter.watershed.threshold = paste0(threshold[j]),
+               filter.watershed.level = paste0(level[k]))
+
+results = dir(out,pattern=".shp$",full.names=T)
+
+# r = brick(cr_dir[i])
+seg = st_read(results[(j+(k-1)*length(threshold))])
+plot(seg, main=paste("threshold:",j," level:",k)) 
+}
+}
+```
+
+Threshold lvl 2 seems to be the most efficient level at 0.0001 and flood level 3 to 5 appear to give the same result, so it is unnecessary to go lower than 0.0001.
+The best range for both parameters appears to be around ~0.0001. 
+
+This is valid on a "full" scene containing both land and water, but is this valid on a scene with a smaller range?
+
+#### small range segmentation
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+
+library(stringr)
+
+for(i in 2:3){
+  
+threshold = c(0.0001)
+level = c(0.0001)
+for(k in seq_along(level)){
+ for(j in seq_along(threshold)){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i,"_",j,k),
+               filter.watershed.threshold = paste0(threshold[j]),
+               filter.watershed.level = paste0(level[k]))
+
+results = dir(out,pattern=".shp$",full.names=T)
+# r = brick(cr_dir[i])
+
+seg = st_read(results[str_detect(results, paste0("_",i,"_"))])
+plot(seg, main=paste("scene:",i)) 
+}  
+}
+}
+```
+
+Both scenes appear to be largely oversegmented. let's try to tune down the segmentation parameters
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+
+library(stringr)
+
+for(i in 2:3){
+  
+threshold = c(0.01)
+level = c(0.01)
+for(k in seq_along(level)){
+ for(j in seq_along(threshold)){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i,"_",j,k),
+               filter.watershed.threshold = paste0(threshold[j]),
+               filter.watershed.level = paste0(level[k]))
+
+results = dir(out,pattern=".shp$",full.names=T)
+# r = brick(cr_dir[i])
+
+seg = st_read(results[str_detect(results, paste0("_",i,"_"))])
+plot(seg, main=paste("scene:",i)) 
+}  
+}
+}
+```
+
+even tuned down 2 orders of magnitude, it seems like the variance within a single "tile" is sufficient to completely distabilize the segmentation algorythm.
+Scene 2 which is in the water with some vegetation is completely oversegmented, while scene 3 is oversegmented where trees would be expected, and probably undersegmented where water is expected.
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+
+library(stringr)
+
+for(i in 2:3){
+  
+threshold = c(0.05)
+level = c(0.01)
+for(k in seq_along(level)){
+ for(j in seq_along(threshold)){
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_",i,"_",j,k),
+               filter.watershed.threshold = paste0(threshold[j]),
+               filter.watershed.level = paste0(level[k]))
+
+results = dir(out,pattern=".shp$",full.names=T)
+# r = brick(cr_dir[i])
+
+seg = st_read(results[str_detect(results, paste0("_",i,"_"))])
+plot(seg, main=paste("scene:",i)) 
+}  
+}
+}
+```
+when tuning parameters, it appears a tile with high contrast could be punished by undersegmentation if the same parameters are used as in a scene with low contrast. this WILL be an issue with tiling. to go over this issue, it would be necessary to have dynamic adjustments of the segmentation parameters based on tile composition.
+
+### panchromatic ( NOT WORKING BECAUSE OF MEMORY LIMITS? )
+
+Let's load the panchromatic image and rescale it to 0-1. It hasn't been corrected so it might have some issues on glinty images
+
+```{r}
+pan_img_path = "D:/Arthur/digitalglobe_archives/010623053080_01/010623053080_01_P001_PAN"
+pan_img = dir(pan_img_path, pattern=".TIF$",full.names=T)
+
+r = brick(pan_img)
+
+library(landscapetools)
+rs = landscapetools::util_rescale(r)
+subset_polygon = st_read("../data/segtest/seg_test.shp")
+
+plot(rs)
+plot(subset_polygon, add=T)
+
+for(i in 1:nrow(subset_polygon)){
+# i=1
+  cr = mask(rs, subset_polygon[i,])
+  cr = crop(cr, subset_polygon[i,])
+  plot(cr)
+  
+  cr = reclassify(cr, cbind(NA, 0)) 
+  
+  writeRaster(cr, paste0("../data/segtest/rasters/pan_cr",i,".tif"), overwrite=T)
+}
+
+```
+
+```{r}
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+out = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/"
+
+library(stringr)
+
+cr_dir
+i=5
+plot(raster(cr_dir[i]))
+
+
+threshold = c(0.5,0.1, 0.01, 0.001, 0.0001)
+level = c(0.5, 0.1, 0.01, 0.001, 0.0001)
+# for(k in seq_along(level)){
+ # for(j in seq_along(threshold)){
+
+k=3
+j=2
+watershed.segm(raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path = gsub("/","\\\\",out),
+               name = paste0("ws_test_pan_",i,"_",j,k),
+               filter.watershed.threshold = paste0(threshold[j]),
+               filter.watershed.level = paste0(level[k]))
+
+# results = dir(out,pattern=".shp$",full.names=T)
+# r = brick(cr_dir[i])
+
+# seg = st_read(results[str_detect(results, paste0("_pan_"))[(j+(k-1)*length(threshold))]])
+# plot(seg, main=paste("scene:",i, "level:",k,"threshold:",j))
+# }
+# }
+# }
+
+pan_imgs = dir(out, pattern=".shp$", full.names=T)[19:30]
+
+for(i in seq_along(pan_imgs)){
+shpi = st_read(pan_imgs[i])
+plot(shpi)
+}
+
+```
+# Meanshift multiband
+
+## function setup
+
+This function calls OTB's Meanshift segmentation from the windows command line without leaving the R environment. It allows all parameters to be adjusted from R and writes the results with a config text file in an ouptut folder.
+
+```{r define meanshift segmentation function, eval=T}
+meanshift.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.meanshift.spatialr = "5",   #default 5
+                           filter.meanshift.ranger   = "3",  #default 15
+                           filter.meanshift.thres    = "0.001", #default 0.1
+                           filter.meanshift.maxiter  = "100", #default 100
+                           filter.meanshift.minsize  = "10"  #default 100
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+
+### visible bands only
+```{r}
+
+cr_dir = dir("C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/rasters/", pattern=".tif$", full.names=T)
+output_dir = "C:/Users/degranda/Desktop/R_projects/Open_HRRS_W2/data/segtest/seg_results/meanshift/"
+
+sp = c(3, 5, 10, 20)
+rp = c(0.01, 0.05, 0.001, 0.005)
+# tp = c(0.1, 0.01, 0.05, 0.001, 0.005, 0.0001, 0.0005)
+
+
+# for(i in 1:3){
+i=1
+for(j in seq_along(sp)){
+  for(k in seq_along(rp)){
+    # for(l in seq_along(tp)){
+      
+meanshift.segm(filter.meanshift.spatialr = sp[j],      # default 5
+               filter.meanshift.ranger   = rp[k],  # default 15
+               filter.meanshift.thres    = 0.1,  # default 0.1
+               filter.meanshift.maxiter  = "200",    # default 100
+               filter.meanshift.minsize  = "3",     # default 100
+               raster.in = gsub("/","\\\\",cr_dir[i]),
+               out.path  = gsub("/","\\\\",output_dir),
+               name      = paste0(i,"_",j,"_",k,"_",l,".tif"))
+      
+    }
+  }
+# }
+
+# }
+```
+
+```{r}
+shps = dir(output_dir, full.names=T, pattern=".shp$")
+
+for(i in seq_along(shps)){
+  skipnext = FALSE
+  tryCatch(
+    plot(st_read(shps[i]),main=paste0(dir(output_dir, pattern=".shp$")[i])),
+    error = function(e) {skipnext<<-TRUE}
+  )
+  if(skipnext){next}
+}
+```
+
+
+### panchromatic only
+
+### visible + features

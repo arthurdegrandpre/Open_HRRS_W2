@@ -1,0 +1,917 @@
+---
+title: "06_vegetation_mapping"
+author: "Arthur de Grandpré"
+date: "23 juillet 2020"
+output: html_document
+---
+
+```{r setup}
+library(stringr)
+library(raster)
+```
+
+# training set building
+
+## 1. Feature extraction & Segmentation
+
+```{r, eval=F}
+fr = dir("D:/arthur/digitalglobe_archives/ready_mosaics/",
+         pattern = ".tif$",
+         full.names = T,
+         recursive = F)# full rasters
+
+output_dir = "D:/arthur/digitalglobe_archives/ready_mosaics/features/"
+```
+
+```{r feature extraction functions, eval=F}
+#####
+feature.LocalStatisticExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-radius",radius,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_LocalStatisticExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.EdgeExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default gradient, but can be changed for sobel or touzi
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-filter",filter,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_EdgeExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.HaralickTextureExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-texture",texture,
+              "-parameters.min",parameters.min,
+              "-parameters.max",parameters.max,
+              "-parameters.xrad",parameters.xrad,
+              "-parameters.yrad",parameters.yrad,
+              "-parameters.xoff",parameters.xoff,
+              "-parameters.yoff",parameters.yoff,
+              "-parameters.nbbin",parameters.nbbin,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+```{r feature extractions NIR, eval=F}
+
+otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
+otb.ramlimit = 4096 # does not seem to work without changing windows environment variable (not an issue)
+
+for(i in seq_along(fr)){
+
+  r = brick(fr[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsn_",str_sub(fr[i],-35)),
+                           channel   = "8",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("een_",str_sub(fr[i],-35)),
+                           channel   = "8",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htn_",str_sub(fr[i],-35)),
+                           channel   = "8",   # default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "3", # xradius in pixels
+                           parameters.yrad  = "3", # yradius in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsn_",str_sub(fr[i],-35)),
+                           channel   = "4",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("een_",str_sub(fr[i],-35)),
+                           channel   = "4",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htn_",str_sub(fr[i],-35)),
+                           channel   = "4",   #default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "2", # xradius in pixels
+                           parameters.yrad  = "2", # yradisu in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  }
+  }
+```
+
+```{r feature extractions blue, eval=F}
+for(i in seq_along(fr)){
+
+  r = brick(fr[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsb_",str_sub(fr[i],-35)),
+                           channel   = "2",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("eeb_",str_sub(fr[i],-35)),
+                           channel   = "2",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htb_",str_sub(fr[i],-35)),
+                           channel   = "2",   # default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "3", # xradius in pixels
+                           parameters.yrad  = "3", # yradius in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsb_",str_sub(fr[i],-35)),
+                           channel   = "1",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("eeb_",str_sub(fr[i],-35)),
+                           channel   = "1",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",fr[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htb_",str_sub(fr[i],-35)),
+                           channel   = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "2", # xradius in pixels
+                           parameters.yrad  = "2", # yradisu in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  }
+  }
+  
+```
+
+
+```{r, eval=F}
+for(i in seq_along(fr)){
+ 
+ r = brick(fr[i])
+  
+  features = c("localstats","edge","haralick")
+  
+  for(j in seq_along(features)){
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i+length(fr)]))
+  }
+  
+  writeRaster(r, paste0(output_dir,str_sub(fr[i],-35)), overwrite=T)
+}
+
+```
+
+
+```{r define segmentation function, eval=F}
+meanshift.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.meanshift.spatialr = "5",   #default 5
+                           filter.meanshift.ranger   = "0.003",  #default 15
+                           filter.meanshift.thres    = "0.001", #default 0.1
+                           filter.meanshift.maxiter  = "100", #default 100
+                           filter.meanshift.minsize  = "10"  #default 100
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+
+```{r segmentation, eval=F}
+input_dir = "D:/arthur/digitalglobe_archives/ready_mosaics/features/"
+output_dir = "D:/Arthur/digitalglobe_archives/ready_mosaics/shapefiles/"
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+ # for(i in seq_along(imgs)){
+   i=1
+meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
+               filter.meanshift.ranger   = "0.005",  # default 15
+               filter.meanshift.thres    = "0.0005",  # default 0.1
+               filter.meanshift.maxiter  = "200",    # default 100
+               filter.meanshift.minsize  = "3",     # default 100
+               raster.in = gsub("/","\\\\",imgs[i]),
+               out.path  = gsub("/","\\\\",output_dir),
+               name      = str_sub(imgs[i],-35))
+
+  # }
+```
+
+## 2. QGIS training set assignation
+
+# classification
+
+## 1. model training
+
+```{r}
+input_rasters = "D:/arthur/digitalglobe_archives/ready_mosaics/features/" #input BOA images with additionnal features
+input_t_obj = "../data/training_sets/veg/" #location of training sets.
+```
+
+
+```{r, eval=T}
+library(spatialEco)
+library(randomForest)
+library(landscapemetrics)
+library(rgdal)
+
+rasters = dir(input_rasters, pattern=".tif$", full.names=T)
+training_objects = dir(input_t_obj, pattern=".gpkg$", full.names=T)
+
+i=1
+r = brick(rasters[i])
+
+if(nlayers(r)==4+4+4+2+8+8){
+  names(r)=c("B","G","R","N","NLS1","NLS2","NLS3","NLS4","NEE","NHA1","NHA2","NHA3","NHA4","NHA5","NHA6","NHA7","NHA8","BLS1","BLS2","BLS3","BLS4","BEE","BHA1","BHA2","BHA3","BHA4","BHA5","BHA6","BHA7","BHA8")
+} else {
+  names(r)=c("C","B","G","Y","R","RE","N1","N","NLS1","NLS2","NLS3","NLS4","NEE","NHA1","NHA2","NHA3","NHA4","NHA5","NHA6","NHA7","NHA8","BLS1","BLS2","BLS3","BLS4","BEE","BHA1","BHA2","BHA3","BHA4","BHA5","BHA6","BHA7","BHA8")
+}
+
+s = readOGR(training_objects[9])
+s = s[,2:dim(s@data)[2]]
+s = spTransform(s, crs(r))
+
+zonal_s = zonal.stats(x = s, y = r, stats = c("minx","maxx","meanx","sdx"))
+s@data = cbind(s@data,zonal_s)
+
+library(rgeos)
+library(spatialEco)
+
+parea = as.data.frame(rgeos::gArea(s, byid=T))
+colnames(parea)=c("area")
+s@data = cbind(s@data,parea)
+
+pperi = polyPerimeter(s)
+s@data = cbind(s@data,pperi)
+
+s2 = s@data[is.finite(rowSums(s@data[,2:123])),]
+
+library(tidyverse)
+
+s3 = s2 %>%
+  select_if(function(x) !(all(is.na(x)) | all(x=="")))
+
+s3 = droplevels(s3)
+
+table(s3$class)
+
+sampsize.limit=100
+sampsize.v = c()
+for(i in 1:length(table(s3$class))){
+   if(table(s3$class)[[i]]<sampsize.limit){
+    sampsize.v=append(sampsize.v,table(s3$class)[[i]])
+  } else {sampsize.v=append(sampsize.v,sampsize.limit)}
+}
+
+s4 = s3 %>% 
+  arrange(class) %>% 
+  group_by(class) %>% 
+  nest() %>% 
+  ungroup() %>% 
+  mutate(n = sampsize.v)
+
+s5 = s4 %>% 
+  mutate(samp = purrr::map2(data, n, dplyr::sample_n))
+
+s6 = s5 %>% 
+  select(-data) %>% 
+  unnest(samp) %>% 
+  select(-2)
+
+#### parallellize randomforest ####
+
+# install.packages("caret")
+library(caret)
+library(doParallel)
+
+cl <- makePSOCKcluster(detectCores()-2)
+registerDoParallel(cl)
+
+table(s3$class)
+
+rfp <- train(class ~ ., data = s6, method = "parRF")
+
+stopCluster(cl)
+
+#### singlecore randomforest ####
+
+# rf = randomForest(formula = class~.,
+#                   data = s3,
+#                   proximity = T,
+#                   ntree = 10000,
+#                   # mtry = 20,
+#                   # nodesize = 10,
+#                   importance = T,
+#                   sampsize=sampsize.v,
+#                   replace=T)
+# 
+# plot(rf)
+# varImpPlot(rf)
+# importance = as.data.frame(importance(rf))
+# head(importance, 10)
+# rf
+rm(s);rm(s2);rm(zonal_s)
+
+confusionMatrix(rfp)
+varImp(rfp)
+rfp
+plot(rfp)
+```
+
+## 2. tile and classify
+
+```{r tiling_function, eval=F}
+make_tiles <- function(j, tile.tbl, 
+                          out.path.tif = out.path.tif,
+                          source = input_rasters){
+  
+  out.tif = paste0(out.path.tif, paste0("/T_",j), tile.tbl[j,"ID"], ".tif")
+  
+  if(!file.exists(out.tif)){
+    m <- readGDAL(input_rasters[i], offset=unlist(tile.tbl[j,c("offset.y","offset.x")]),
+                 region.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 output.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 silent = TRUE)
+    
+    if(!all(is.na(m@data[,1]))){
+      writeGDAL(m, out.tif, type="Float32", 
+                options="COMPRESS=DEFLATE")
+  }
+  }
+}
+
+```
+
+```{r write_tiles, eval=F}
+library(rgdal)
+library(GSIF)
+input_rasters = dir("D:/arthur/digitalglobe_archives/ready_mosaics/",pattern=".tif$",full.names=T,recursive=F)
+out.path.tif = "D:/arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/"
+file.exists(out.path.tif)
+
+i=1
+
+obj = GDALinfo(input_rasters[i])
+tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE)
+tile.tbl = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE)
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores())
+sfExport("make_tiles","tile.tbl","i","out.path.tif","input_rasters","tile.lst")
+sfLibrary(rgdal)
+sfLibrary(plyr)
+sfLibrary(rgeos)
+sfLibrary(gdalUtils)
+
+out.lst = sfClusterApplyLB(1:nrow(tile.tbl),
+                           function(x){make_tiles(x, tile.tbl ,out.path.tif, source = input_rasters)})
+
+sfStop()
+
+```
+
+
+```{r feature extraction functions, eval=F}
+#####
+feature.LocalStatisticExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           radius   = "3"  #default 3, computational window radius
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-radius",radius,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_LocalStatisticExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.EdgeExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           filter   = "gradient"  #default gradient, but can be changed for sobel or touzi
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-filter",filter,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_EdgeExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+#####
+
+feature.HaralickTextureExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-texture",texture,
+              "-parameters.min",parameters.min,
+              "-parameters.max",parameters.max,
+              "-parameters.xrad",parameters.xrad,
+              "-parameters.yrad",parameters.yrad,
+              "-parameters.xoff",parameters.xoff,
+              "-parameters.yoff",parameters.yoff,
+              "-parameters.nbbin",parameters.nbbin,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+```{r feature extractions NIR, eval=F}
+
+otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
+otb.ramlimit = 4096 # does not seem to work without changing windows environment variable (not an issue)
+tiles = dir("D:/arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/", pattern=".tif$",full.names=T)
+
+output_dir = "D:/arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/feature_extract/"
+
+for(i in seq_along(tiles)){
+
+  r = brick(tiles[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsn_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "8",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("een_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "8",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htn_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "8",   # default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "3", # xradius in pixels
+                           parameters.yrad  = "3", # yradius in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsn_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "4",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("een_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "4",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htn_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "4",   #default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "2", # xradius in pixels
+                           parameters.yrad  = "2", # yradisu in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  }
+  }
+```
+
+```{r feature extractions blue, eval=F}
+for(i in seq_along(tiles)){
+
+  r = brick(tiles[i])
+  
+  if(nlayers(r)==8){
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "2",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("eeb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "2",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "2",   # default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "3", # xradius in pixels
+                           parameters.yrad  = "3", # yradius in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  } else {
+feature.LocalStatisticExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"localstats"),
+                           name      = paste0("lsb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "1",   # default 1, selected channel index in input image
+                           radius    = "5"    # default 3, computational window radius
+                           )
+  
+feature.EdgeExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"edge"),
+                           name      = paste0("eeb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "1",        # default 1, selected channel index in input image
+                           filter    = "gradient"  # default 3, computational window radius
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",tiles[i]),
+                           out.path  = paste0(gsub("/","\\\\",output_dir),"haralick"),
+                           name      = paste0("htb_",sub(".*tifs/", "", tiles[i])),
+                           channel   = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",   # default simple, also available "advanced" or "higher"
+                           parameters.min   = "0", # input image minimum value
+                           parameters.max   = "1", # input image maximum value
+                           parameters.xrad  = "2", # xradius in pixels
+                           parameters.yrad  = "2", # yradisu in pixels
+                           parameters.xoff  = "1", # xoffset in pixels
+                           parameters.yoff  = "1", # yoffset in pixels
+                           parameters.nbbin = "8"  # bins per axis of histogram
+                           )
+  }
+  }
+  
+```
+
+
+```{r, eval=F}
+for(i in seq_along(tiles)){
+ 
+ r = brick(tiles[i])
+  
+  features = c("localstats","edge","haralick")
+  
+  for(j in seq_along(features)){
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i]))
+  r = addLayer(r, brick(dir(paste0(output_dir,features[j]),full.names=TRUE, pattern=".tif$")[i+length(tiles)]))
+  }
+  
+  writeRaster(r, paste0(output_dir,sub(".*tifs/", "", tiles[i])), overwrite=T)
+}
+
+```
+
+
+```{r directories for seg2, eval=F}
+otb.path  = "C:\\OTB-7.0.0-Win64\\bin"
+otb.ramlimit = 4096 # does not seem to work without changing windows environment variable (not an issue)
+input_dir = "D:/Arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/feature_extract"
+output_dir = "D:/Arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/feature_extract/shps"
+```
+
+```{r segmentation2, eval=F}
+imgs = dir(input_dir,full.names=T, pattern=".tif$")
+
+ for(i in seq_along(imgs)){
+   meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
+               filter.meanshift.ranger   = "0.005",  # default 15
+               filter.meanshift.thres    = "0.0005",  # default 0.1
+               filter.meanshift.maxiter  = "200",    # default 100
+               filter.meanshift.minsize  = "3",     # default 100
+               raster.in = gsub("/","\\\\",imgs[i]),
+               out.path  = gsub("/","\\\\",output_dir),
+               name      = sub(".tif.*","",sub(".*feature_extract/","",imgs[i])))
+
+ }
+   
+```
+
+
+```{r}
+zonal.stats.small = function (x, y, stats = c("min", "mean", "max")) 
+{
+    if (class(y) != "RasterLayer" & class(y) != "RasterStack" & 
+        class(y) != "RasterBrick") 
+        stop("y must be a raster (layer, stack, brick) class object")
+    if (class(x) != "SpatialPolygonsDataFrame") 
+        stop("x must be a SpatialPolygonsDataFrame object")
+    rvx <- velox::velox(y)
+    ldf <- rvx$extract(sp = x, small=T)
+    names(ldf) <- row.names(x)
+    stats.fun <- function(x, m = stats) {
+        slist <- list()
+        for (i in 1:length(m)) {
+            slist[[i]] <- apply(x, MARGIN = 2, m[i], na.rm = TRUE)
+        }
+        return(as.data.frame(t(unlist(slist))))
+    }
+    results <- lapply(ldf, FUN = stats.fun)
+    results <- do.call("rbind", results)
+    rn <- vector()
+    for (n in stats) {
+        rn <- append(rn, paste(n, names(y), sep = "."))
+    }
+    names(results) <- rn
+    return(results)
+}
+```
+
+```{r}
+classify_tiles = function(j,
+                          in.path.r = tifs,
+                          in.path.shp = shps,
+                          out.path.shp.class = output_shps){
+
+#   in.path.r = tifs
+#   in.path.shp = shps
+#   out.path.shp.class = output_shps
+# j=1
+  out.shp = paste0(paste0(out.path.shp.class,sub(".tif.*","",sub(".*extract/","",tifs))[j],".shp"))  
+
+r = raster::brick(in.path.r[j])
+
+if(nlayers(r)==4+4+4+2+8+8){
+  names(r)=c("B","G","R","N","NLS1","NLS2","NLS3","NLS4","NEE","NHA1","NHA2","NHA3","NHA4","NHA5","NHA6","NHA7","NHA8","BLS1","BLS2","BLS3","BLS4","BEE","BHA1","BHA2","BHA3","BHA4","BHA5","BHA6","BHA7","BHA8")
+} else {
+  names(r)=c("C","B","G","Y","R","RE","N1","N","NLS1","NLS2","NLS3","NLS4","NEE","NHA1","NHA2","NHA3","NHA4","NHA5","NHA6","NHA7","NHA8","BLS1","BLS2","BLS3","BLS4","BEE","BHA1","BHA2","BHA3","BHA4","BHA5","BHA6","BHA7","BHA8")
+}
+
+# r = approxNA(r)
+
+pc = rgdal::readOGR(in.path.shp[j])
+pc = rgeos::gBuffer(pc, byid=T, width=0)
+pc = raster::crop(pc,r)
+pc = pc[order(pc$DN),]
+
+zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+parea = as.data.frame(gArea(pc,byid=T))
+colnames(parea)=c("area")
+
+pperi = polyPerimeter(pc)
+
+pc2=pc
+
+pc2@data = cbind(pc@data,zonal_s)
+pc2@data = cbind(pc2@data,parea)
+pc2@data = cbind(pc2@data,pperi)
+
+pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:123])),]
+pc2@data$class = "unknown"
+pc2@data$class = predict(rfp, pc2@data, type="raw")
+pc3 = pc
+pc3@data = merge(pc@data,pc2@data,all=T)
+
+rgdal::writeOGR(pc3,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+}
+
+```
+
+
+```{r classify_tiles, eval=T}
+
+tifs = dir("D:/arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/feature_extract/", full.names=T, pattern=".tif$")
+shps = dir("D:/arthur/digitalglobe_archives/ready_mosaics/tiles/tifs/feature_extract/shps/", full.names=T, pattern=".shp$")
+
+i=1
+
+output_shps = "D:/arthur/digitalglobe_archives/ready_mosaics/tiles/classified/"
+
+library(snowfall)
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
+sfExport("tifs","shps","output_shps","classify_tiles","rfp","minx","maxx","meanx","sdx","zonal.stats.small")
+sfLibrary(rgdal)
+sfLibrary(raster)
+sfLibrary(randomForest)
+sfLibrary(spatialEco)
+sfLibrary(rgeos)
+sfLibrary(sp)
+
+out.lst = sfClusterApplyLB(1:length(tifs),
+                           function(x){classify_tiles(x, tifs, shps, output_shps)})
+
+sfStop()
+```
+
+```{r, eval=T}
+library(sf)
+library(tidyverse)
+
+cs = dir(output_shps, pattern=".shp$",full.names=T)
+
+mosaic_shps = function(u,cs){
+  s = st_read(cs[u])
+  diss = s %>% 
+    group_by(class) %>% 
+    summarise() %>% 
+    st_buffer(0)
+}
+
+library(doParallel)
+library(foreach)
+
+cl=parallel::makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+m = foreach(u=1:length(cs), .combine=rbind, .packages=c("sf","tidyverse")) %dopar% {
+  mosaic_shps(u, cs)
+}
+
+stopCluster(cl)
+
+plot(m)
+st_write(m,
+         "D:/Arthur/digitalglobe_archives/ready_mosaics/classified/classified_2009v10.gpkg",
+         driver="GPKG",
+         delete_dsn=T)
+
+```

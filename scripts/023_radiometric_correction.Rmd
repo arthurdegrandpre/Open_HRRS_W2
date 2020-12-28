@@ -179,10 +179,10 @@ TOA2 = TOA %>%
 
 
 for(i in 1:length(unique(TOA2[,5]))){
+  i=1
 print(paste0("tile ",i," out of ",length(unique(TOA2[,5]))," at ",Sys.time())) # to see progress
 
 img_d = subset(TOA2, TOA2[,5]==unique(TOA2[,5])[i]) # subsets all rows for a single date
-
 
 if(length(img_d[,1])>1){ # if this date has many images, they will be mosaiced together
 rl = list() # creates an empty list where the rasters will be stored 
@@ -218,12 +218,14 @@ mul_boa_output = "D:/Arthur/digitalglobe_archives/boa/MUL/"
 path_to_images = dir("D:/Arthur/digitalglobe_archives/arc/MUL/mosaics/", pattern = ".tif$", full.names = T) # mosaic images to correct
 
 for(i in 1:length(path_to_images)){
-  print(paste0("image ",i,"/",length(path_to_images)))
+i=1
+    print(paste0("image ",i,"/",length(path_to_images)))
 
    img = path_to_images[i]
    r = brick(img)
+   
    # r[r<1] = NA
-   r = reclassify(r, cbind(-1,0,NA), right=FALSE)
+   # r = reclassify(r, cbind(-1,0,0), right=FALSE)
    
    # hist(r)
    rctx1 = unique(subset(rct, rct$id_part==str_sub(img,-39,-20)))
