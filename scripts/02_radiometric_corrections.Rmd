@@ -160,10 +160,10 @@ if(!dir.exists(arc_output)){dir.create(arc_output, FALSE)}
 dfi = bind_rows(mul,pan, .id="source")
 
 for(type in c(1,2)){
-# type=1
+# type=2
   dfx = dfi %>% filter(source==type)
   for(i in seq_along(dfx$X)){
-  # i=2
+  # i=1
     print(paste0("image ",i,"/",length(dfx$X)))
 
     img = dfx[i,]
@@ -267,7 +267,7 @@ for(j in c("MUL","PAN")){
 
 ```{r}
 
-images = data.frame(value=dir("C:/Users/Arthur/Documents/data/hrrs_work/arc_output/mosaic/", pattern = ".tif$", full.names = T)) # mosaic images to correct
+images = data.frame(value=dir(mosaic_output, pattern = ".tif$", full.names = T)) # mosaic images to correct
 
 if(!dir.exists(toa_output)){dir.create(toa_output, FALSE)}
 if(!dir.exists(boa_output)){dir.create(boa_output, FALSE)}

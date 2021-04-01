@@ -118,7 +118,7 @@ for(i in 1:length(imgs_PAN[,1])){ # fills the tibble with information from the r
 colnames(PAN_summary) = c("res","nlayers","crs","path","date") # changes the variable names
 
 PAN_summary = PAN_summary %>%  # adds information concerning the product ID from it's name.
-  mutate(part = str_match(PAN_summary$path, ".*_01_(.*).TIF")[,2]) %>% 
+  mutate(part = str_match(PAN_summary$path, ".*_01_(.*)(.TIF|.tif)")[,2]) %>% 
   mutate(id = str_match(PAN_summary$path, ".*AS(_....-|-)(.*)_P")[,3]) %>% 
   mutate(id_part = paste0(id,"_",part)) %>% 
   as.tibble()
