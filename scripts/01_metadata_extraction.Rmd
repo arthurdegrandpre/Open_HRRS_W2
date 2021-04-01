@@ -35,7 +35,7 @@ library(kableExtra) # for clean html output tables
 Specify directory containing all sub-directories to explore for the original .TIF data from the digitalglobe acquisitions.
 
 ```{r finding images}
-imgs_dir = "C:/Users/Arthur/Documents/data/mffp" # directory containing all satellite images (can be in different folders, to be found with recursive search)
+imgs_dir = "../data/digitalglobe_image/" # directory containing all satellite images (can be in different folders, to be found with recursive search)
 ```
 
 
@@ -54,11 +54,11 @@ March 2021: Only 3 pairs of MUL/PAN images
 ```{r image search}
 # extract date and data type from the filenames
 imgs = as.data.frame(
-  dir(imgs_dir, recursive = T, pattern = ".TIF$")
+  dir(imgs_dir, recursive = T, pattern = ".TIF$|.tif$")
   ) # creates a dataframe of all image names 
 
 imgs = imgs %>%
-  mutate(date = lubridate::ymd_hms(str_match(imgs[,1], ".*(MUL|PAN)/(.*)(.-M|-P)2AS")[,3]))
+  mutate(date = lubridate::ymd_hms(str_match(imgs[,1], ".*(MUL|PAN)/(.*)(-M|-P)2AS")[,3]))
 imgs_MUL = imgs %>% 
   filter(str_detect(imgs[,1], "_MUL"))
 imgs_PAN = imgs %>% 
@@ -80,7 +80,7 @@ for(i in 1:length(imgs_MUL[,1])){ # fills the tibble with information from the r
 colnames(MUL_summary) = c("res","nlayers","crs","path","date") # changes the variable names
 
 MUL_summary = MUL_summary %>%  # adds information concerning the product ID from it's name.
-  mutate(part = str_match(MUL_summary$path, ".*_01_(.*).TIF")[,2]) %>% 
+  mutate(part = str_match(MUL_summary$path, ".*_01_(.*)(.TIF|.tif)")[,2]) %>% 
   mutate(id = str_match(MUL_summary$path, ".*AS(_....-|-)(.*)_P")[,3]) %>% 
   mutate(id_part = paste0(id,"_",part)) %>% 
   as_tibble()
