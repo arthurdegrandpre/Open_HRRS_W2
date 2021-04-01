@@ -1,0 +1,469 @@
+---
+title: "02_radiometric_corrections"
+author: "Arthur de Grandpré"
+date: "29 jan 2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+---
+
+This is the first script of the Open HRRS W2 workflow for open source high resolution remote sensing of optically complex waters.  
+
+This script calibrates and correct the radiometric signal from DN to BOA using absolute radiometric calibration and the COST method from Chavez 1996. The parameters used for calibration are extracted using the first script.
+
+# 1. Setting up the R environment
+
+## 1.1. Libraries
+
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function.
+
+**important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
+
+```{r setup, message=F, warning=F}
+rm(list=ls())
+library(sf)
+library(raster)
+library(tidyverse)
+library(data.table)
+library(satellite)
+library(GeoLight)
+library(sp)
+library(stringr)
+# library(doParallel) # could be added at some point to speedup the process
+# library(foreach) # could be added at some point to speedup the process
+
+# raster options
+rasterOptions(todisk=T) # forces on disk writing instead of in memory
+rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary file
+
+```
+
+
+## 1.2. Inputs and Outputs
+
+```{r}
+path_to_images = "C:/Users/Arthur/Documents/data/mffp/" # missing part to the path variable in image summaries
+
+arc_output = "C:/Users/Arthur/Documents/data/hrrs_work/arc_output/" # path where to write absolute radiometric calibration output
+toa_output = "C:/Users/Arthur/Documents/data/hrrs_work/toa_output/" # path where to write top of atmosphere reflectance output
+boa_output = "C:/Users/Arthur/Documents/data/hrrs_work/boa_output/" # path where to write bottom of atmosphere reflectance output
+
+mosaic_output = "C:/Users/Arthur/Documents/data/hrrs_work/arc_output/mosaic/" # path where to write mosaic MUL images (less files, but larger)
+
+```
+
+
+## 1.3. Define functions
+
+There are no functions to define prior to running this script.  
+  
+  
+# 2. Absolute radiometric calibration & TOA transformation
+
+This step is detailed in DigitalGlobe's technical notes for radiometric use of worldview-02 and worldview-03 products, available in the documentation subfolder of this repository.
+  
+All parameters required for radiometric calibration have been compiled in a file and stored into the data subfolder (gain_offset_table_exo.csv), or extracted from the metadata in step 01.  
+  
+The given equation to do so is $$L =  GAIN * DN * (\frac{abscalfactor}{effectivebandwith})+OFFSET$$ 
+  
+Where $$L$$ is the at sensor radiance in units of W·sr−1·m−2·nm−1 (watt per steradian per square metre per nanometre)  
+  
+GAIN is the gain parameter specific to the band and satellite, as obtained from DigitalGlobe  
+  
+DN is the raw pixel value for a given band in the original product  
+  
+OFFSET is the offset parameter specific to the band and satellite, as obtained from DigitalGlobe  
+  
+abscalfactor is the absolute calibration factor parameter specific to the band, satellite and scene, as retrieved from each image's metadata.  
+  
+effectivebandwith is the actual effective wavelength sensibility range of every band, satellite and scene, as retrieved from each image's metadata.
+  
+  
+  Once at sensor radiance is obtained, it is possible to transform it into top-of-atmosphere reflectance, by the equation given within the technical notes of DigitalGlobe that goes as follow : 
+  
+  $$\rho(TOA)_\lambda = \frac{L_\lambda*d^2*\pi}{E_\lambda*cos(\theta_S)} $$
+
+Where $\rho(TOA)_\lambda$ is the top of atmosphere reflectance,  
+  
+  $L_\lambda$ is the at sensor radiance (previously calculated),  
+  
+  $d^2$ is the squared distance between the earth and the sun in astronomical units
+  
+  $E_\lambda$ is the exoatmospheric radiance (obtained from digitalglobe in 3 different values, but here the mean will be used)
+  
+  $cos(\theta_S)$ is the cosine of the solar zenith angle
+  
+Or, by using image based atmospheric correction methods such as the COST from Chaves 1996, it is possible to transform it into bottom-of-atmosphere reflectance as follow : 
+
+$$\rho(BOA)_\lambda = \frac{(L_\lambda-min(L_\lambda))*d^2*\pi}{E_\lambda*cos(\theta_S)*TAUz)} $$
+
+Where $\rho(BOA)_\lambda$ is the bottom of atmosphere reflectance,  
+  
+  $L_\lambda$ is the at sensor radiance (previously calculated),  
+  
+  $d^2$ is the squared distance between the earth and the sun in astronomical units
+  
+  $E_\lambda$ is the exoatmospheric radiance (obtained from digitalglobe in 3 different values, but here the mean will be used)
+  
+  $cos(\theta_S)$ is the cosine of the solar zenith angle
+  
+  $TAUz)$  atmospheric transmittance along the path from the sun to the ground surface (same as $\theta_S$ according to COST model, 1 according to DOS model)  
+    
+  An important thing to note in order to use the DOS and COST method is that a true dark object is required for the correction to work properly. Since true dark objects are rare, images from the same pass should be mosaiced together, allowing the minimum to be estimated from more data points. 
+  
+  
+## 2.1. data preparation 
+
+Let's read the data necessary for calibration
+
+```{r read data}
+DG_param = read.csv("../data/gain_offset_table_exo.csv", sep=";",header=T)
+rcp = read.csv("../data/radiometric_calibration_parameters.csv")
+mul = read.csv("../data/multispectral_summary.csv")
+pan = read.csv("../data/panchromatic_summary.csv")
+```
+
+Let's merge digitalglobe's parameters with our metadata information. Mean orbit altitude will also be added since it was not included in previous references.
+
+```{r merge data}
+DG_param$bands = gsub(" ","",DG_param$bands) # makes sure the are no useless spaces in strings
+DG_param$sats = gsub(" ","",DG_param$sats) # makes sure the are no useless spaces in strings
+
+rcp$sats = gsub(" ","",rcp$sats) # makes sure the are no useless spaces in strings
+rcp$bands = gsub(" ","",rcp$bands) # makes sure the are no useless spaces in strings
+
+rct = merge(rcp,DG_param,all=T) # radiometric correction table
+
+# add satellite altitude
+
+sats = c("QB02","WV02","WV03","WV04")
+alt_m = c(450000, 770000, 617000, 617000)
+esd = data.frame(sats,alt_m)
+
+rct = merge(rct, esd)
+
+write.csv(rct, "../data/radiometric_correction_table.csv")
+```
+
+
+## 2.2. absolute radiometric calibration
+
+```{r}
+if(!dir.exists(arc_output)){dir.create(arc_output, FALSE)}
+
+dfi = bind_rows(mul,pan, .id="source")
+
+for(type in c(1,2)){
+# type=1
+  dfx = dfi %>% filter(source==type)
+  for(i in seq_along(dfx$X)){
+  # i=2
+    print(paste0("image ",i,"/",length(dfx$X)))
+
+    img = dfx[i,]
+    r = brick(paste0(path_to_images,img$path))
+    r = reclassify(r, cbind(-1,1,NA), right=FALSE)
+   
+    if(type==1){
+      rctx1 = unique(subset(rct, rct$id_part==img$id_part[1]))
+      rctx1 = subset(rctx1, rctx1$bands!="P")
+      bands_order = c("C","B","G","Y","R","RE","N1","N")
+      rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))  
+    }
+   
+    if(type==2){
+      rctx = unique(subset(rct, rct$id_part==img$id_part[1]))
+      rctx = subset(rctx, rctx$bands=="P")
+    }
+   
+    r2=r
+   
+    if(type==1){
+      for(b in 1:length(rctx$bands)){
+        print(paste0("band ",b,"/",length(rctx$bands)))
+        r2[[b]] = rctx$gain[b]*r[[b]]*(rctx$abscalfactor[b]/rctx$effectivebandwidth[b])+rctx$offset[b]
+      } 
+    }
+   
+    if(type==2){
+     print("panchromatic")
+     r2 = rctx$gain*r*(rctx$abscalfactor/rctx$effectivebandwidth)+rctx$offset
+    } 
+  
+   
+   
+  writeRaster(r2,paste0(arc_output,
+                        as.Date(rctx$date[1]),"_",
+                        ifelse(type==1,"MUL","PAN"),"_",
+                        rctx$sats[1],"_",
+                        rctx$id_part[1],".tif"),
+              overwrite=T)
+  }
+}
+```
+
+
+## 2.3. mosaic building
+
+```{r build mosaics}
+
+if(!dir.exists(mosaic_output)){dir.create(mosaic_output, FALSE)}
+path_to_arc = arc_output
+
+#### mosaicing ####
+ARC = as.data.frame(dir(path_to_arc,full.names=T, pattern=".tif$"))
+colnames(ARC)=c("value")
+
+## obtain product details from the filenames
+ARC2 = ARC %>%
+  mutate(date = str_match(ARC$value, ".*output/(.*)_..._")[,2]) %>% # this extracts the date from the name string 
+  mutate(part = str_match(ARC$value, ".*_01_(.*).tif")[,2]) %>%
+  mutate(id = str_match(ARC$value, "_...._(.*)_P00")[,2]) %>% 
+  mutate(id_part = paste0(id,"_",part)) %>% 
+  mutate(type = str_match(ARC$value, "-.._(.*)_...._")[,2])
+
+
+for(j in c("MUL","PAN")){
+  ARC3 = subset(ARC2, type==j)
+  
+  for(i in 1:length(unique(ARC3[,5]))){
+    # i=1
+    print(paste0("tile ",i," out of ",length(unique(ARC3[,5]))," at ",Sys.time())) # to see progress
+
+    img_d = subset(ARC3, ARC3[,5]==unique(ARC3[,5])[i]) # subsets all rows for a single date
+
+    if(length(img_d[,1])>1){ # if one date has many images, they will be joined together
+      rl = list() # creates an empty list where the rasters will be stored 
+
+        for(j in 1:length(img_d[,1])){ # fills the list will all rasters
+          rl[[j]] = brick(as.character(img_d[,1][j]))
+        }
+
+      rasters.mosaicargs = rl # object to call with the do.call function that will apply mosaic to all rasters
+      rasters.mosaicargs$fun = mean
+
+      mos = do.call(mosaic, rasters.mosaicargs) # mos is the mosaic of all rasters of a single date
+
+      writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",unique(ARC3[,5])[i],"_ARC_MOSAIC.tif"), overwrite=T)
+    }
+
+    if(length(img_d[,1])==1){ # if there was a single image, it will still be written as a mosaic, since it is a complete view of the scene
+    mos = brick(as.character(img_d[,1][1]))
+
+    writeRaster(mos, paste0(mosaic_output,img_d$date[1],"_",ARC3$type[1],"_",unique(ARC3$id_part)[i],"_ARC_MOSAIC.tif"), overwrite=T)
+    }
+  }
+}
+
+```
+
+## 2.4. TOA and BOA 
+
+```{r}
+
+images = data.frame(value=dir("C:/Users/Arthur/Documents/data/hrrs_work/arc_output/mosaic/", pattern = ".tif$", full.names = T)) # mosaic images to correct
+
+if(!dir.exists(toa_output)){dir.create(toa_output, FALSE)}
+if(!dir.exists(boa_output)){dir.create(boa_output, FALSE)}
+
+for(j in c("MUL","PAN")){
+  # j="MUL"
+  imgs = subset(images$value, grepl(j,images$value))
+  
+  for(i in 1:length(imgs)){
+    # i=1
+    print(paste0("image ",i,"/",length(imgs)))
+    
+    img = imgs[i]
+    r = brick(img)
+    
+    # r[r<1] = NA
+    # r = reclassify(r, cbind(-1,0,0), right=FALSE)
+    
+    rctx1 = unique(subset(rct, rct$id_part==str_match(img, ".*_..._(.*)_ARC")[,2]))
+    
+    if(j=="MUL"){
+      rctx1 = subset(rctx1, rctx1$bands!="P")
+      bands_order = c("C","B","G","Y","R","RE","N1","N")
+      rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
+    }
+    
+    if(j=="PAN"){
+      rctx1 = subset(rctx1, rctx1$bands=="P")
+      rctx = rctx1
+    }
+    r2 = r
+    r3 = r
+  
+    if(j=="MUL"){
+      for(b in 1:length(rctx$bands)){
+      print(paste0("band ",b,"/",length(rctx$bands)))
+      
+      # TOA ######################
+        r2[[b]] = (r[[b]] * calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180))
+        # r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        r3[[b]] = ((r[[b]]-min(na.omit(getValues(r[[b]]))))*calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / 
+          (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180) *
+             cos(rctx$solar_zenith[b]*pi/180))
+        # r3 = reclassify(r3, cbind(1,Inf,1))
+      }}
+      
+    if(j=="PAN"){
+      print("Panchromatic")
+      
+      # TOA ######################
+        r2 = (r * calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180))
+        r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        r3 = ((r-min(na.omit(getValues(r))))*calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / 
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180) *
+             cos(rctx$solar_zenith*pi/180))
+        r3 = reclassify(r3, cbind(1,Inf,1))
+      }
+    
+  writeRaster(r2,paste0(toa_output, as.Date(rctx$date[1]),"_",j,"_",rctx$sats[1],"_",unique(rctx$id_part)[1],".tif"), overwrite=T)
+  writeRaster(r3,paste0(boa_output, as.Date(rctx$date[1]),"_",j,"_",rctx$sats[1],"_",unique(rctx$id_part)[1],".tif"), overwrite=T) 
+}
+}
+```
+
+
+
+# OLD ISSUE (resolved?)
+
+Different minimums for BOA correction leads to big difference in reflection spectra (resolved?)  
+  
+001 and 002 mosaics should be combined and corrected to BOA together. This uses the minimum from P001 and P002 together.
+
+```{r, eval = F}
+
+toa_output = "C:/Users/Arthur/Documents/data/hrrs_work/toa_output/" # PATH FOR TOA OUTPUT
+boa_output = "C:/Users/Arthur/Documents/data/hrrs_work/boa_output/" # PATH FOR BOA OUTPUT
+images = data.frame(value=dir("C:/Users/Arthur/Documents/data/hrrs_work/arc_output/mosaic/", pattern = ".tif$", full.names = T)) # mosaic images to correct
+
+if(!dir.exists(toa_output)){dir.create(toa_output, FALSE)}
+if(!dir.exists(boa_output)){dir.create(boa_output, FALSE)}
+
+for(j in c("MUL","PAN")){
+  # j = "MUL"
+  imgs = subset(images$value, grepl(j,images$value))
+  groups = unique(gsub("_??_P(.*)","",gsub("(.*)mosaic/","",imgs)))
+  
+  for(k in seq_along(groups)){
+      # k=2
+      grx = imgs[str_detect(imgs,groups[k])]
+  
+  for(i in 1:length(grx)){
+    # i=1
+    print(paste0("group ",k,"/",length(imgs)))
+    
+    img = grx[i]
+    r = brick(img)
+    plot(r[[1]])
+    # r[r<1] = NA
+    # r = reclassify(r, cbind(-1,0,0), right=FALSE)
+    
+    rctx1 = unique(subset(rct, rct$id_part==str_match(img, ".*_..._(.*)_ARC")[,2]))
+    
+    if(j=="MUL"){
+      rctx1 = subset(rctx1, rctx1$bands!="P")
+      bands_order = c("C","B","G","Y","R","RE","N1","N")
+      rctx = rctx1 %>% arrange(factor(bands, levels = bands_order))
+    }
+    
+    if(j=="PAN"){
+      rctx1 = subset(rctx1, rctx1$bands=="P")
+      rctx = rctx1
+    }
+    r2 = r
+    r3 = r
+  
+    if(length(grx)==1){
+      if(j=="MUL"){
+      for(b in 1:length(rctx$bands)){
+        # b=1
+      print(paste0("band ",b,"/",length(rctx$bands)))
+      
+      # TOA ######################
+        r2[[b]] = (r[[b]] * calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180))
+        # r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        r3[[b]] = ((r[[b]]-min(na.omit(getValues(r[[b]]))))*calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / 
+          (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180) *
+             cos(rctx$solar_zenith[b]*pi/180))
+        # r3 = reclassify(r3, cbind(1,Inf,1))
+      }}
+      
+    if(j=="PAN"){
+      print("Panchromatic")
+      
+      # TOA ######################
+        r2 = (r * calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180))
+        r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        r3 = ((r-min(na.omit(getValues(r))))*calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / 
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180) *
+             cos(rctx$solar_zenith*pi/180))
+        r3 = reclassify(r3, cbind(1,Inf,1))
+      }
+    } else { # THIS SECTION IS ADAPTED FOR IMAGES BUILT IN TWO PARTS (P001 and P002 from the filenames)
+    
+      if(j=="MUL"){
+        for(b in 1:length(rctx$bands)){
+        # b=1
+        print(paste0("band ",b,"/",length(rctx$bands)))
+      
+      # TOA ######################
+        r2[[b]] = (r[[b]] * calcEarthSunDist(rctx$date[b], formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier[b]+rctx$exo_chkur[b]+rctx$exo_wrc[b])/3) * cos(rctx$solar_zenith[b]*pi/180))
+        # r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        
+        rx1 = brick(grx[1])
+        rx2 = brick(grx[2]) 
+        
+        r3[[b]] = ((r[[b]]-
+                       min(c(minValue(rx1[[b]])),minValue(rx2[[b]])))*
+                       calcEarthSunDist(rctx$date[b], formula = "Mather")^
+                      2*pi) / 
+          (((rctx$exo_thuilier[b] +
+               rctx$exo_chkur[b] +
+               rctx$exo_wrc[b])/3) *
+             cos(rctx$solar_zenith[b]*pi/180) *
+             cos(rctx$solar_zenith[b]*pi/180))
+        # r3 = reclassify(r3, cbind(1,Inf,1))
+      }}
+      
+    if(j=="PAN"){
+      print("Panchromatic")
+      
+      # TOA ######################
+        r2 = (r * calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / # this gives TOA
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180))
+        r2 = reclassify(r2, cbind(1,Inf,1))
+
+      # BOA ######################
+        r3 = ((r-min(c(min(na.omit(getValues(rx1[[b]]))),min(na.omit(getValues(rx2[[b]]))))))*calcEarthSunDist(rctx$date, formula = "Mather")^2*pi) / 
+          (((rctx$exo_thuilier+rctx$exo_chkur+rctx$exo_wrc)/3) * cos(rctx$solar_zenith*pi/180) *
+             cos(rctx$solar_zenith*pi/180))
+        r3 = reclassify(r3, cbind(1,Inf,1))
+      }
+    }
+    
+  writeRaster(r2,paste0(toa_output, as.Date(rctx$date[1]),"_",j,"_",rctx$sats[1],"_",unique(rctx$id_part)[1],".tif"), overwrite=T)
+  writeRaster(r3,paste0(boa_output, as.Date(rctx$date[1]),"_",j,"_",rctx$sats[1],"_",unique(rctx$id_part)[1],".tif"), overwrite=T) 
+}
+  }
+}
+```
