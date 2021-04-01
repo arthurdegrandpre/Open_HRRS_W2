@@ -43,14 +43,20 @@ rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary f
 ## 1.2. Inputs and Outputs
 
 ```{r}
-path_to_images = "C:/Users/Arthur/Documents/data/mffp/" # missing part to the path variable in image summaries
+path_to_images = "../data/digitalglobe_image/" # missing part to the path variable in image summaries
 
-arc_output = "C:/Users/Arthur/Documents/data/hrrs_work/arc_output/" # path where to write absolute radiometric calibration output
-toa_output = "C:/Users/Arthur/Documents/data/hrrs_work/toa_output/" # path where to write top of atmosphere reflectance output
-boa_output = "C:/Users/Arthur/Documents/data/hrrs_work/boa_output/" # path where to write bottom of atmosphere reflectance output
+arc_output = "../data/work/arc_output/" # path where to write absolute radiometric calibration output
+toa_output = "../data/work/toa_output/" # path where to write top of atmosphere reflectance output
+boa_output = "../data/work/boa_output/" # path where to write bottom of atmosphere reflectance output
 
-mosaic_output = "C:/Users/Arthur/Documents/data/hrrs_work/arc_output/mosaic/" # path where to write mosaic MUL images (less files, but larger)
+mosaic_output = "../data/work/arc_output/mosaic/" # path where to write mosaic MUL images (less files, but larger)
 
+
+# create output directories if they do not exist
+for(xdir in c(arc_output,toa_output,boa_output)){
+  if(dir.exists(xdir)){}else{
+    dir.create(xdir)}  
+}
 ```
 
 
@@ -127,11 +133,10 @@ pan = read.csv("../data/panchromatic_summary.csv")
 Let's merge digitalglobe's parameters with our metadata information. Mean orbit altitude will also be added since it was not included in previous references.
 
 ```{r merge data}
-DG_param$bands = gsub(" ","",DG_param$bands) # makes sure the are no useless spaces in strings
-DG_param$sats = gsub(" ","",DG_param$sats) # makes sure the are no useless spaces in strings
-
-rcp$sats = gsub(" ","",rcp$sats) # makes sure the are no useless spaces in strings
-rcp$bands = gsub(" ","",rcp$bands) # makes sure the are no useless spaces in strings
+DG_param$bands = gsub(" ","",DG_param$bands) # makes sure there are no useless spaces in strings
+DG_param$sats = gsub(" ","",DG_param$sats) # makes sure there are no useless spaces in strings
+rcp$sats = gsub(" ","",rcp$sats) # makes sure there are no useless spaces in strings
+rcp$bands = gsub(" ","",rcp$bands) # makes sure there are no useless spaces in strings
 
 rct = merge(rcp,DG_param,all=T) # radiometric correction table
 

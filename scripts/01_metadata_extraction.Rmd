@@ -234,7 +234,7 @@ Let's visualize the data contained inside the raw rasters by visualising raster 
 r = brick(paste0(imgs_dir,"/",last(imgs_MUL[,1])))
 values(r)[values(r) < 1] = NA # make 0s into NA
 r = trim(r) # adjusts the extent
-names(r) = c("B","G","R","N") # name the bands
+names(r) = c("C","B","G","Y","R","RE","N2","N") # name the bands
 plot(r) # display the data
 ```
 
