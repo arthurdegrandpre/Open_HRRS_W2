@@ -8,9 +8,9 @@ output:
     toc_float: yes
 ---
 
-This is the first script of the Open HRRS W2 workflow for open source high resolution remote sensing of optically complex waters.  
+This is the second script of the Open HRRS W2 workflow for open source high resolution remote sensing of optically complex waters.  
 
-This script calibrates and correct the radiometric signal from DN to BOA using absolute radiometric calibration and the COST method from Chavez 1996. The parameters used for calibration are extracted using the first script.
+This script is used for calibration and correction of the radiometric signal from digital numbers (DN) to bottom of atmosphere (BOA) reflectance using absolute radiometric calibration and the COST method from Chavez 1996. The parameters used for calibration are extracted using the first script.
 
 # 1. Setting up the R environment
 
