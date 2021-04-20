@@ -51,12 +51,13 @@ boa_output = "../data/work/boa_output/" # path where to write bottom of atmosphe
 
 mosaic_output = "../data/work/arc_output/mosaic/" # path where to write mosaic MUL images (less files, but larger)
 
-
 # create output directories if they do not exist
 for(xdir in c(arc_output,toa_output,boa_output)){
   if(dir.exists(xdir)){}else{
     dir.create(xdir)}  
 }
+
+
 ```
 
 

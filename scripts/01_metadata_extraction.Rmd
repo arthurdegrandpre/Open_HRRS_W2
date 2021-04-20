@@ -239,3 +239,4 @@ plot(r) # display the data
 ```
 
 Values are expressed in *digital numbers (DN)* which do not reflect precise radiometrics measurements. They **must be transformed into radiometric units** by absolute radiometric calibration (step 02).
+

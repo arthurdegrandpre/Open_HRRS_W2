@@ -49,6 +49,7 @@ destripe_output = "../data/work/destripe_output/"
 MUL_input = boa_input[str_detect(boa_input,"PAN",negate=TRUE)]
 to_correct = MUL_input[c(1)] # select images that must be corrected
 
+
 stripe_path = dir("../data/subset/destriping/", pattern="stripe.gpkg$", full.names=T)
 stripe_path = stripe_path[1]
 
