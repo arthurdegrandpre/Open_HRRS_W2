@@ -7,8 +7,13 @@ output:
     toc: yes
     toc_float: yes
 ---
+# Notes : to fix
+ 1.1. rasterOptions : envoyer le tmpdir vers 1.2. avec chemin relatif + justification emplacement  
+ 1.1. some libraries won't install using install.packages() (?)
 
-This is the second script of the Open HRRS W2 workflow for open source high resolution remote sensing of optically complex waters.  
+
+# Intro
+This is the second script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover in optically complex waters.  
 
 This script is used for calibration and correction of the radiometric signal from digital numbers (DN) to bottom of atmosphere (BOA) reflectance using absolute radiometric calibration and the COST method from Chavez 1996. The parameters used for calibration are extracted using the first script.
 

@@ -1,0 +1,264 @@
+---
+title: "04_segmentation_features"
+author: "Arthur de Grandpré"
+date: "05 feb 2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+---
+
+# Intro
+This is the fourth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
+
+This script generates image segmentation as required for all future steps. As of February 2021, segmentation will be performed on spectral bands only.
+
+Based on the results of this script, land and water can be masked for stripe and glint corrections, or scenes can be directly classified if those corrections are not necessary.
+
+
+# 1. Setting up the R environment
+
+## 1.1. Libraries
+
+First, load the required libraries. They can be installed using the *install.packages("package.name")* function.
+
+```{r, message=F, warning=F}
+rm(list=ls()) ; gc()
+
+
+library(raster)
+library(tidyverse)
+library(sf)
+library(sp)
+library(rgdal)
+```
+
+## 1.2. Inputs / Outputs
+
+```{r}
+#OTB setup
+otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
+
+#input
+boa_input = dir("C:/Users/Arthur/Documents/rscripts/Open_HRRS_W2/data/work/destripe_output/",full.names=T,pattern=".tif$") # Relative paths NOT ACCEPTED because of cmd call
+MUL_input = boa_input[str_detect(boa_input, "MUL")]
+
+#output
+segmentation_output = paste0("C:/Users/Arthur/Documents/rscripts/Open_HRRS_W2/data/work/segmentation_output/") # Relative paths NOT ACCEPTED because of cmd call
+features_output = paste0(segmentation_output,"/features/")
+```
+
+create the directories
+
+```{r}
+for(i in c(segmentation_output,features_output)){
+  if(file.exists(i)){}else{
+    dir.create(i)}
+}
+```
+
+## 1.3. Define functions
+
+Image segmentation is used to delineate objects within an image, generating polygons from a raster. In this case, we want to use an algorithm able to process large images with a large amount of layers. For this application, we will use Orfeo Toolbox's MeanShift segmentation, which can process rapidly very large amounts of multi-band data in an opensource software.  
+  
+Those resulting polygons will then be used to classify the image based on object properties instead of pixel values.
+  
+Let's define the segmentation function call to OTB
+
+```{r define segmentation function, eval=T}
+meanshift.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.meanshift.spatialr = "5",   #default 5
+                           filter.meanshift.ranger   = "0.0025",  #default 15 (0.0025 good for 2009, 0.001/0.0015 good for 2019)
+                           filter.meanshift.thres    = "0.001", #default 0.1
+                           filter.meanshift.maxiter  = "100", #default 100
+                           filter.meanshift.minsize  = "5"  #default 100
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+
+For a better classification, additionnal features can be added to the image, such as texture, local statistics and edge extractions. All those layers can be used as additionnal when classifying objects.
+
+Let's define the feature extraction function using Orfeo toolbox's command line interface
+
+```{r haralick function, eval=F}
+feature.HaralickTextureExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-texture",texture,
+              "-parameters.min",parameters.min,
+              "-parameters.max",parameters.max,
+              "-parameters.xrad",parameters.xrad,
+              "-parameters.yrad",parameters.yrad,
+              "-parameters.xoff",parameters.xoff,
+              "-parameters.yoff",parameters.yoff,
+              "-parameters.nbbin",parameters.nbbin,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+# 2. Segmentation
+
+Segmentation parameters will greatly affect the segmentation quality. If segmentation quality seems bad after visual validation, it is possible to change the parameters in the following chunk. The current values are based on simple tweaking and visual cues. **Eventually**, maybe use SegOptim for optimization of segmentation parameters https://www.sciencedirect.com/science/article/abs/pii/S0303243418303556.  
+
+The output from this section is a simple shapefile
+
+```{r segmentation, eval=F}
+
+for(i in seq_along(MUL_input)){
+
+  meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
+               filter.meanshift.ranger   = "0.0015",  # default 15 # low for 2019
+               filter.meanshift.thres    = "0.001",  # default 0.1
+               filter.meanshift.maxiter  = "100",    # default 100
+               filter.meanshift.minsize  = "5",     # default 100
+               raster.in = gsub("/","\\\\",MUL_input[i]),
+               out.path  = gsub("/","\\\\",segmentation_output),
+               name      = str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1])
+
+}
+
+```
+
+## visual validation
+
+```{r, eval=T}
+final = dir(segmentation_output, full.names = T, pattern=".shp$")
+
+plot(brick(MUL_input[1]), main = "BOA image"); plot(st_read(final[1]), main = "segments")
+plot(brick(MUL_input[1])[[2]], main = "BOA image, zoom B2 + segments", xlim=c(664500,665000),ylim=c(5111500,5112000)); plot(st_geometry(st_read(final[1])), main = "segments",add=T, xlim=c(664500,665000),ylim=c(5111500,5112000))
+```
+
+
+# 3. feature extraction
+
+When calling the functions, slightly different calls will be made based on whether the image has 4 or 8 bands in order to use the NIR band. Edge extraction and local statistics have been removed from the workflow since they were unreliable. 
+
+```{r feature extractions, eval=F}
+if(dir.exists(paste0(features_output,"haralick"))){}else{
+  dir.create(paste0(features_output,"haralick"))
+}
+
+for(i in seq_along(MUL_input)){
+# i=1
+
+  r = brick(MUL_input[i])
+
+otb.ramlimit = 16000
+
+  if(nlayers(r)==8){
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",MUL_input[i]),
+                           out.path  = paste0(gsub("/","\\\\",features_output),"haralick"),
+                           name      = paste0("n_ht_",str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1]),
+                           channel = "8",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "5", #xradius in pixels
+                           parameters.yrad = "5", #yradisu in pixels
+                           parameters.xoff = "10", #xoffset in pixels
+                           parameters.yoff = "10", #yoffset in pixels
+                           parameters.nbbin = "64" # bins per axis of histogram
+                           )
+  } else {
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",MUL_input[i]),
+                           out.path  = paste0(gsub("/","\\\\",features_output),"haralick"),
+                           name      = paste0("n_ht_",str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1]),
+                           channel = "4",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "5", #xradius in pixels
+                           parameters.yrad = "5", #yradisu in pixels
+                           parameters.xoff = "10", #xoffset in pixels
+                           parameters.yoff = "10", #yoffset in pixels
+                           parameters.nbbin = "64" # bins per axis of histogram
+                           )
+
+  }
+  }
+  
+```
+
+Let's add those features to the BOA image, as well as spectral indexes. see Villa et al. 2014 https://ieeexplore.ieee.org/document/6804659
+
+```{r, eval=F}
+for(i in seq_along(MUL_input)){
+ # i=1
+ r = brick(MUL_input[i])
+  
+  features = c("haralick") # "localstats" and "edge" removed
+  
+  for(j in seq_along(features)){
+  r = addLayer(r, brick(dir(paste0(features_output,features[j]),full.names=TRUE, pattern=".tif$")[i]))
+  
+  L = 0.5
+  
+  if(nlayers(r)==12){
+  r$ndvi =  (r[[4]]-r[[3]]) / (r[[4]]+r[[3]])
+  r$savi =  (1+L)*((r[[4]]-r[[3]]) / (r[[4]]+r[[3]]+L))
+  r$evi  =  2.5*(((r[[4]]-r[[3]]) / (r[[4]]+6*r[[3]]-7.5*r[[1]]+1)))
+  r$ndavi=  (r[[4]]-r[[1]]) / (r[[4]]+r[[1]])
+  r$wavi =  (1+L)*((r[[4]]-r[[1]]) / (r[[4]]+r[[1]]+L))
+  names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+  }else{
+  r$ndvi =  (r[[8]]-r[[4]]) / (r[[8]]+r[[4]])
+  r$savi =  (1+L)*((r[[8]]-r[[4]]) / (r[[8]]+r[[4]]+L))
+  r$evi  =  2.5*(((r[[8]]-r[[4]]) / (r[[8]]+6*r[[4]]-7.5*r[[2]]+1)))
+  r$ndavi=  (r[[8]]-r[[2]]) / (r[[8]]+r[[2]])
+  r$wavi =  (1+L)*((r[[8]]-r[[2]]) / (r[[8]]+r[[2]]+L))
+  names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+  }
+  }
+  
+  writeRaster(r, paste0(features_output,str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1],".tif"), overwrite=T)
+}
+
+```
+
+### visual validation
+
+```{r, eval=T}
+final = dir(features_output, full.names = T, pattern=".tif")
+plot(brick(MUL_input[1]), main = "BOA image"); plot(brick(final[1]), main = "BOA + NIR features image")
+
+brick(final[1])
+```
+
+Now that the features have been extracted, we can proceed to classifications.

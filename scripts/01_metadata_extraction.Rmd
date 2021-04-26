@@ -8,7 +8,8 @@ output:
     toc_float: yes
 ---
 
-This is the first script of the Open HRRS W2 workflow for open source high resolution remote sensing of optically complex waters.  
+# Intro
+This is the first script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover in optically complex waters.  
   
 This first script is used to extract and validate metadata from high resolution images. It is adapted to the data structure of DigitalGlobe products, including Quickbird and Worlview-02, 03 & 04.
 

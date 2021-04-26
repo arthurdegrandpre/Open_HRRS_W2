@@ -1,0 +1,448 @@
+---
+title: "05_land_masking"
+author: "Arthur de Grandpré"
+date: "10/02/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+---
+
+# Intro
+
+This is the fifth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
+
+This script is used to perform a first classification to separate terrestrial pixels from aquatic pixels. This is an optional step if the image does not require deglinting, but it is critical if the image does require deglinting. Since deglinting is not fully implemented in the workflow yet, a simple landmask that keeps floating and emerging vegetation is acceptable. For a full deglinting of water pixels, a mask including all objects that could generate a NIR signature, such as dense and high vegetation canopy is necessary.  
+
+This step requires manual work in the form of constructed training sets (multipolygon files, as shp or gpkg) built from QGIS or ArcGIS.  
+
+It treats one image at a time, in order to allow for selection of the right training sets.
+
+Multiple images of the same region and satellite acquisition should be able to be classified based on the same classifier training.
+
+
+# 1. Setting up the R environment
+
+## 1.1. Libraries
+
+First, load the required libraries. They can be installed using the *install.packages("package.name")* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
+
+```{r, message=F, warning=F}
+rm(list=ls()) ; gc()
+
+# for velox installation 
+# library(devtools)
+# install_github("hunzikp/velox")
+
+library(raster)
+library(tidyverse)
+library(sf)
+library(sp)
+library(rgdal)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(snowfall)
+library(GSIF)
+library(plyr) # used in snowfall env
+library(rgeos) # used in snowfall env
+library(gdalUtils) # used in snowfall env
+library(spatialEco) # used in classification
+library(randomForest) # used for classification
+library(velox) # used for classification
+```
+
+## 1.2. Inputs / Outputs
+
+```{r}
+
+#OTB setup
+otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
+
+#input
+features_input = "../data/work/segmentation_output/features/"
+input_rasters = dir(features_input,full.names=T,pattern=".tif$")
+input_t_obj = "../data/training_sets/land/" #location of training sets.
+training_objects = dir(input_t_obj, full.names=T)
+
+raster_position = 1 # object to use in rasters 
+training_position = 18 # object to use in training_objects
+
+#output
+tiles_tif_output = paste0(features_input,"/tiles/")
+tiles_shp_output = paste0(tiles_tif_output,"/segmentation/")
+tiles_classif_output = paste0(tiles_tif_output,"/landmask/")
+landmask_output = "../data/work/land_classification_output/"
+
+```
+
+create the directories
+
+```{r}
+for(i in c(tiles_tif_output,tiles_shp_output,tiles_classif_output, landmask_output)){
+  if(file.exists(i)){}else{
+    dir.create(i)}
+}
+
+# file.copy(from=boa_input, to=deglint_output, recursive=F, overwrite=F) # so all files are still within the same folder, even if they are not all corrected.
+
+```
+
+## 1.3. Define functions
+
+This function is for tiling so the classifier can be run in parallel. This makes it faster and more forgiving on memory usage.
+
+```{r tiling_function, eval=T}
+make_tiles <- function(j, tile.tbl, 
+                          out.path.tif = tiles_tif_output,
+                          source = input_rasters){
+  
+  out.tif = paste0(out.path.tif, paste0("/T_",j), tile.tbl[j,"ID"], ".tif")
+  
+  if(!file.exists(out.tif)){
+    m <- readGDAL(input_rasters[i], offset=unlist(tile.tbl[j,c("offset.y","offset.x")]),
+                 region.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 output.dim=unlist(tile.tbl[j,c("region.dim.y","region.dim.x")]),
+                 silent = TRUE)
+    
+    if(!all(is.na(m@data[,1]))){
+      writeGDAL(m, out.tif, type="Float32", 
+                options="COMPRESS=DEFLATE")
+  }
+  }
+}
+
+```
+
+This is the same segmentation function as before, calling orfeotoolbox from cmd
+
+```{r define segmentation function, eval=T}
+meanshift.segm <- function(raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           filter.meanshift.spatialr = "5",   #default 5
+                           filter.meanshift.ranger   = "0.0025",  #default 15
+                           filter.meanshift.thres    = "0.001", #default 0.1
+                           filter.meanshift.maxiter  = "100", #default 100
+                           filter.meanshift.minsize  = "5"  #default 100
+                           ){
+  
+# Set configuration      
+conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
+Those are regular min/max/mean/sd functions for zonal statistics, but they specify na.rm=T and have return values if the polygons have a single pixel.
+
+```{r zonalstats function, eval=T}
+minx = function(x, na.rm=T){min(x,na.rm=T)}
+maxx = function(x, na.rm=T){max(x, na.rm=T)}
+meanx = function(x, na.rm=T){if(length(x)==1){return(x)}else{sum(x, na.rm=T)/length(x)}}
+sdx = function(x, na.rm=T){if(length(x)==1){return(0)}else{sd(x,na.rm=T)}}
+```
+
+This function uses velox to perform faster zonal statistics extraction on a raster object (statistics can be replaced by our custom functions)
+
+```{r, eval=T}
+zonal.stats.small = function (x, y, stats = c("min", "mean", "max")) 
+{
+    if (class(y) != "RasterLayer" & class(y) != "RasterStack" & 
+        class(y) != "RasterBrick") 
+        stop("y must be a raster (layer, stack, brick) class object")
+    if (class(x) != "SpatialPolygonsDataFrame") 
+        stop("x must be a SpatialPolygonsDataFrame object")
+    rvx <- velox::velox(y)
+    ldf <- rvx$extract(sp = x, small=T)
+    names(ldf) <- row.names(x)
+    stats.fun <- function(x, m = stats) {
+        slist <- list()
+        for (i in 1:length(m)) {
+            slist[[i]] <- apply(x, MARGIN = 2, m[i], na.rm = TRUE)
+        }
+        return(as.data.frame(t(unlist(slist))))
+    }
+    results <- lapply(ldf, FUN = stats.fun)
+    results <- do.call("rbind", results)
+    rn <- vector()
+    for (n in stats) {
+        rn <- append(rn, paste(n, names(y), sep = "."))
+    }
+    names(results) <- rn
+    return(results)
+}
+```
+
+This function is used to perform classification within a tile, given a pre-trained random forest model. It can be parallelized.
+
+```{r, eval=T}
+classify_tiles = function(j,
+                          in.path.r = tiles_tif_output,
+                          in.path.shp = tiles_shp_output,
+                          out.path.shp.class = tiles_classif_output){
+
+#   in.path.r = tiles_tif_output
+#   in.path.shp = tiles_shp_output
+#   out.path.shp.class = tiles_classif_output
+# j=278
+
+in.path.r = dir(tiles_tif_output,".tif$",full.names=T)
+out.shp = paste0(paste0(out.path.shp.class,gsub(".tif.*","",sub(".*tiles/","",in.path.r))[j],".shp"))  
+
+r = raster::brick(in.path.r[j])
+r = approxNA(r)
+
+if(nlayers(r)==17){
+  names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+} else {
+  names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+}
+
+in.path.shp = dir(tiles_shp_output,".shp$",full.names=T)
+
+pc = rgdal::readOGR(in.path.shp[str_detect(in.path.shp,paste0(gsub(".tif.*","",unlist(str_split(in.path.r[j],"tiles/"))[2]),".shp"))])
+pc = rgeos::gBuffer(pc, byid=T, width=0)
+pc = raster::crop(pc,r)
+pc = pc[order(pc$DN),]
+
+
+zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+
+pc2=pc
+
+pc2@data = cbind(pc@data,zonal_s)
+
+pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:ncol(pc2@data)])),]
+pc2@data$class = "unknown"
+
+pc2@data$class = predict(rf, pc2@data, type="class")
+pc3 = pc
+pc3@data = merge(pc@data,pc2@data,all=T)
+
+rgdal::writeOGR(pc3,
+                dsn=paste0(out.shp),
+                driver="ESRI Shapefile",
+                layer=paste0("TC_",j),
+                overwrite_layer = T)
+}
+
+```
+
+
+#2. land and water classification using the random.forest model  
+
+this requires :  
+ - tiles (using rgdal)  
+ - tile segmentation (using Orfeo ToolBox)  
+ - predictions (using the random.forest model)  
+ - untiling and dissolving (using sf)
+ 
+ 
+## 2.1 tiling
+
+Now let's build our tiles, segment them and classify them.
+
+```{r write_tiles, eval=T}
+i=raster_position
+
+### tiling
+
+obj = GDALinfo(input_rasters[i]) # GDALinfo doesn't directly read the raster, it only retrieves the metadata
+tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE) # this line makes a list of polygons so they can be written
+tile.tbl = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE) # this line makes a dataframe that makes it easy to call the tiles
+
+
+# this section, until the sfStop() function launches the parallel execution of multiple R clients. Use sfStop to kill it, or at least make sure all processes are ended.
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores())
+sfExport("make_tiles","tile.tbl","i","tiles_tif_output","input_rasters","tile.lst")
+sfLibrary(rgdal)
+sfLibrary(plyr)
+sfLibrary(rgeos)
+sfLibrary(gdalUtils)
+
+out.lst = sfClusterApplyLB(1:nrow(tile.tbl),
+                           function(x){make_tiles(x, tile.tbl ,tiles_tif_output, source = input_rasters)})
+
+sfStop()
+
+
+### segmentation
+
+t_imgs = dir(tiles_tif_output,full.names=T, pattern=".tif$")
+
+ for(i in seq_along(t_imgs)){
+   meanshift.segm(filter.meanshift.spatialr = "5",   #default 5
+                  filter.meanshift.ranger   = "0.0025",  #default 15
+                  filter.meanshift.thres    = "0.001", #default 0.1
+                  filter.meanshift.maxiter  = "100", #default 100
+                  filter.meanshift.minsize  = "5",  #default 100
+               raster.in = gsub("/","\\\\",t_imgs[i]),
+               out.path  = gsub("/","\\\\",tiles_shp_output),
+               name      = gsub(".tif.*","",gsub(".*tiles/","",t_imgs[i])))
+
+ }
+
+```
+
+# 3. land masking  
+## 3.1 train the classifier
+
+Since random forest is a supervised method of classification, it requires training data. Training data must be manually produced using any GIS software. Here, for open source purposes, we select QGIS. Once a proper training set is built (enough samples of enough classes for every image), whole image classification can be performed.
+
+
+```{r, eval=T}
+i = raster_position # object to use in rasters 
+j = training_position # object to use in training_objects
+
+r = brick(input_rasters[i])
+# must be altered for 4 bands images
+if(nlayers(r)==17){
+  names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+} else {
+  names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+}
+
+s = readOGR(training_objects[j])
+s = s[,2:dim(s@data)[2]]
+s = spTransform(s, crs(r))
+
+zonal_s = zonal.stats(x = s, y = r, stats = c("minx","maxx","meanx","sdx"))
+s@data = cbind(s@data,zonal_s)
+
+s2 = s@data[is.finite(rowSums(s@data[,2:ncol(s@data)])),]
+s2$class_lr=as.factor(s2$class)
+
+
+rf = randomForest(formula = class_lr~.,
+                  data = s2,
+                  proximity = T,
+                  ntree = 2000,
+                  # mtry = 20,
+                  # nodesize = 10,
+                  importance = T)
+
+plot(rf)
+varImpPlot(rf)
+importance = as.data.frame(importance(rf))
+head(importance, 10)
+rf
+
+rm(s);rm(s2);rm(importance);rm(zonal_s)
+
+```
+
+## 3.2 apply the classifier
+
+```{r classify_tiles, eval=T}
+
+sfInit(parallel=TRUE, cpus=parallel::detectCores()-1)
+sfExport("tiles_tif_output","tiles_shp_output","tiles_classif_output","classify_tiles","rf","minx","maxx","meanx","sdx","zonal.stats.small")
+sfLibrary(rgdal)
+sfLibrary(raster)
+sfLibrary(randomForest)
+sfLibrary(spatialEco)
+sfLibrary(rgeos)
+sfLibrary(sp)
+sfLibrary(stringr)
+
+out.lst = sfClusterApplyLB(1:length(dir(tiles_tif_output,"tif$")),
+                           function(x){classify_tiles(x,
+                                                      tiles_tif_output,
+                                                      tiles_shp_output,
+                                                      tiles_classif_output)})
+
+sfStop()
+```
+
+```{r, eval=T}
+cs = dir(tiles_classif_output, pattern=".shp$",full.names=T)
+
+mosaic_shps = function(u,cs){
+  s = st_read(cs[u])
+  diss = s %>% 
+    group_by(class) %>% 
+    summarise() %>% 
+    st_buffer(0)
+}
+
+
+cl=parallel::makeCluster(detectCores()-1)
+registerDoParallel(cl)
+
+m = foreach(u=1:length(cs), .combine=rbind, .packages=c("sf","tidyverse")) %dopar% {
+  mosaic_shps(u, cs)
+}
+
+stopCluster(cl)
+
+plot(m)
+st_write(m,
+         paste0(landmask_output,"2019_P001_02.gpkg"),
+         driver="GPKG",
+         delete_dsn=T)
+
+plot(r)
+```
+
+# write masked rasters (manually select images and validate classes)
+
+```{r}
+masks = dir(landmask_output,full.names=T, pattern=".gpkg$")
+
+rx = brick(input_rasters[2])[[1:8]]
+mx = st_read(masks[6])
+
+unique(mx$class)
+
+mw = mx %>% 
+  filter(class %in% c("v_sub_high",
+                      "v_sub_low",
+                      "w_shallow",
+                      "w_deep",
+                      "v_floating"))
+  # filter(class %in% c("water"))
+
+plot(mw)
+
+rw = mask(rx,mw)
+writeRaster(rw, paste0(landmask_output,gsub("(.*)features/","",input_rasters[2])), overwrite=T)
+
+```
+
+
+### TROUBLESHOOTING
+
+there are some tiles that remain empty after classification
+let's identify the bad tiles
+
+```{r, eval=F}
+# library(sf)
+tiles = SpatialPolygonsDataFrame(tile.lst, data=data.frame(c(1:length(tile.lst@polygons))))
+tt = spTransform(tiles, CRS("+init=epsg:4326"))
+
+tt2 = st_transform(m, CRS("+init=epsg:4326"))
+
+centers <- data.frame(gCentroid(tt, byid = TRUE))
+centers$ID = row.names(tt)
+library(leaflet)
+leaflet() %>% 
+  addTiles() %>% 
+  addPolygons(data=tt2) %>% 
+  addLabelOnlyMarkers(data=centers,
+                      label=~ID,
+                      lng=~x,
+                      lat=~y,
+                      labelOptions = labelOptions(noHide = TRUE,
+                                                  direction = 'top',
+                                                  textOnly = TRUE))
+
+#some tiles to check : 54 for NA
+```
+
