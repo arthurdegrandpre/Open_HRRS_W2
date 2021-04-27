@@ -9,7 +9,7 @@ output: html_document
 
 This is an incomplete script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.  
   
-This script comes after land masking and will perform empirical deglinting of water pixels. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.  
+This script comes after land masking and will perform empirical deglinting of water pixels, based on the Hochberg 2003 method. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.  
   
 A manually delinieated polygon of an area of optically deep water is required to run this script.  
 
@@ -80,6 +80,8 @@ dz = dir(input_deep, pattern=".shp$", full.names=T)
 corresponding_shp = c(1)
 dz = dz[corresponding_shp]
 ```
+
+Method : Hochberg et al. 2003, Sea Surface Correction of High Spatial Resolution Ikonos Images to Improve Bottom Mapping in Near-Shore Environments. IEEE Transactions on geoscience and remote sensing.
 
 ```{r}
 i=1
