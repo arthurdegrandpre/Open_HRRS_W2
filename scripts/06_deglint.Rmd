@@ -13,7 +13,7 @@ This script comes after land masking and will perform empirical deglinting of wa
   
 A manually delinieated polygon of an area of optically deep water is required to run this script.  
 
-While the results appear useable, it is unclear wether they should be implemented to help the classification or only later to limit errors in complexity estimation
+While the results appear useable, it is unclear wether they should be implemented to help the classification or only later to limit errors in complexity estimation.
 
 In this script, every image has to be treated independently since they require different training sets and inputs.
 
@@ -49,11 +49,11 @@ library(velox) # used for classification
 ## 1.2. Input/Outputs
 
 ```{r}
-input_imgs = "C:/Users/Arthur/Documents/data/hrrs_work/land_classification_output/"
+input_imgs = "../data/work/land_classification_output/"
 input_deep = "../data/deep_zones/"
 tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
   
-output_dir = "C:/Users/Arthur/Documents/data/hrrs_work/land_classification_output/deglint/"
+output_dir = "../data/work/land_classification_output/deglint/"
 ```
 
 create the directories 
@@ -73,19 +73,19 @@ Select images to fix and corresponding deep zone shapefiles
 
 ```{r}
 imgs = dir(input_imgs, pattern=".tif$", full.names=T)
-to_fix = c(2,3)
+to_fix = c(1)
 gi = imgs[to_fix]
 
 dz = dir(input_deep, pattern=".shp$", full.names=T)
-corresponding_shp = c(7,8)
+corresponding_shp = c(1)
 dz = dz[corresponding_shp]
 ```
 
 ```{r}
-i=2
+i=1
 
 r = brick(gi[i])
-if(nlayers(r)==21){
+if(nlayers(r)==8){
   r = brick(gi[i])[[1:8]]
   names(r) = c("C","B","G","Y","R","RE","N","N2")
 } else {
@@ -148,7 +148,7 @@ for(k in seq_along(tdis)){
 }
 # }
 
-
+plot(r3[[2]])
 ```
 
 # OLD
