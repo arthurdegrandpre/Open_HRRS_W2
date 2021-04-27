@@ -8,6 +8,9 @@ output:
     toc_float: yes
 ---
 
+# NOTE : 
+ 3.2 output goes into wrong folder (?)
+
 # Intro
 
 This is the fifth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
@@ -63,15 +66,16 @@ otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and ve
 features_input = "../data/work/segmentation_output/features/"
 input_rasters = dir(features_input,full.names=T,pattern=".tif$")
 input_t_obj = "../data/training_sets/land/" #location of training sets.
-training_objects = dir(input_t_obj, full.names=T)
+training_objects = dir(input_t_obj, full.names=T, pattern = ".gpkg$")
+training_objects
 
 raster_position = 1 # object to use in rasters 
-training_position = 18 # object to use in training_objects
+training_position = 2 # object to use in training_objects
 
 #output
-tiles_tif_output = paste0(features_input,"/tiles/")
-tiles_shp_output = paste0(tiles_tif_output,"/segmentation/")
-tiles_classif_output = paste0(tiles_tif_output,"/landmask/")
+tiles_tif_output = normalizePath(paste0(features_input,"/tiles/"))
+tiles_shp_output = normalizePath(paste0(tiles_tif_output,"/segmentation/"))
+tiles_classif_output = normalizePath(paste0(tiles_tif_output,"/landmask//"))
 landmask_output = "../data/work/land_classification_output/"
 
 ```
@@ -246,7 +250,7 @@ this requires :
  
 ## 2.1 tiling
 
-Now let's build our tiles, segment them and classify them.
+Now let's build our tiles and segment them.
 
 ```{r write_tiles, eval=T}
 i=raster_position
@@ -275,20 +279,23 @@ sfStop()
 
 ### segmentation
 
-t_imgs = dir(tiles_tif_output,full.names=T, pattern=".tif$")
+t_imgs = normalizePath(dir(tiles_tif_output, full.names=T, pattern=".tif$"))
 
  for(i in seq_along(t_imgs)){
+   # i=1
    meanshift.segm(filter.meanshift.spatialr = "5",   #default 5
-                  filter.meanshift.ranger   = "0.0025",  #default 15
+                  filter.meanshift.ranger   = "0.00125",  #default 15
                   filter.meanshift.thres    = "0.001", #default 0.1
                   filter.meanshift.maxiter  = "100", #default 100
                   filter.meanshift.minsize  = "5",  #default 100
                raster.in = gsub("/","\\\\",t_imgs[i]),
                out.path  = gsub("/","\\\\",tiles_shp_output),
-               name      = gsub(".tif.*","",gsub(".*tiles/","",t_imgs[i])))
+               name      = gsub(".tif.*","",gsub(".*tiles","",t_imgs[i])))
 
  }
-
+gsub("/","\\\\",t_imgs[i])
+gsub("/","\\\\",tiles_shp_output)
+gsub(".tif.*","",gsub(".*tiles","",t_imgs[i]))
 ```
 
 # 3. land masking  
@@ -317,13 +324,13 @@ zonal_s = zonal.stats(x = s, y = r, stats = c("minx","maxx","meanx","sdx"))
 s@data = cbind(s@data,zonal_s)
 
 s2 = s@data[is.finite(rowSums(s@data[,2:ncol(s@data)])),]
-s2$class_lr=as.factor(s2$class)
+s2$class=as.factor(s2$class)
 
 
-rf = randomForest(formula = class_lr~.,
+rf = randomForest(formula = class~.,
                   data = s2,
                   proximity = T,
-                  ntree = 2000,
+                  ntree = 1000,
                   # mtry = 20,
                   # nodesize = 10,
                   importance = T)
@@ -334,7 +341,7 @@ importance = as.data.frame(importance(rf))
 head(importance, 10)
 rf
 
-rm(s);rm(s2);rm(importance);rm(zonal_s)
+# rm(s);rm(s2);rm(importance);rm(zonal_s)
 
 ```
 
@@ -359,6 +366,8 @@ out.lst = sfClusterApplyLB(1:length(dir(tiles_tif_output,"tif$")),
                                                       tiles_classif_output)})
 
 sfStop()
+
+tiles_classif_output
 ```
 
 ```{r, eval=T}
@@ -384,7 +393,7 @@ stopCluster(cl)
 
 plot(m)
 st_write(m,
-         paste0(landmask_output,"2019_P001_02.gpkg"),
+         paste0(landmask_output,"2019_P001_subset_01.gpkg"),
          driver="GPKG",
          delete_dsn=T)
 
@@ -393,26 +402,29 @@ plot(r)
 
 # write masked rasters (manually select images and validate classes)
 
-```{r}
+```{r, warning=F, message=F}
 masks = dir(landmask_output,full.names=T, pattern=".gpkg$")
 
-rx = brick(input_rasters[2])[[1:8]]
-mx = st_read(masks[6])
+
+rx = brick(input_rasters[1])[[1:8]]
+mx = st_read(masks[1])
 
 unique(mx$class)
 
+## ADJUST THE CLASS NAMES TO KEEP
+
 mw = mx %>% 
-  filter(class %in% c("v_sub_high",
-                      "v_sub_low",
-                      "w_shallow",
-                      "w_deep",
-                      "v_floating"))
-  # filter(class %in% c("water"))
+  # filter(class %in% c("v_sub_high",
+  #                     "v_sub_low",
+  #                     "w_shallow",
+  #                     "w_deep",
+  #                     "v_floating"))
+  filter(class %in% c("water"))
 
 plot(mw)
 
 rw = mask(rx,mw)
-writeRaster(rw, paste0(landmask_output,gsub("(.*)features/","",input_rasters[2])), overwrite=T)
+writeRaster(rw, paste0(landmask_output,gsub("(.*)features/","",input_rasters[1])), overwrite=T)
 
 ```
 

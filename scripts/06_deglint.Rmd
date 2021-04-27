@@ -1,0 +1,281 @@
+---
+title: "06_deglint"
+author: "Arthur de Grandpré"
+date: "10/02/2021"
+output: html_document
+---
+
+# Intro
+
+This is an incomplete script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.  
+  
+This script comes after land masking and will perform empirical deglinting of water pixels. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.  
+  
+A manually delinieated polygon of an area of optically deep water is required to run this script.  
+
+While the results appear useable, it is unclear wether they should be implemented to help the classification or only later to limit errors in complexity estimation
+
+In this script, every image has to be treated independently since they require different training sets and inputs.
+
+# 1. Setting up the R environment
+
+## 1.1. Libraries
+```{r, message=F, warning=F}
+# for velox installation 
+# library(devtools)
+# install_github("hunzikp/velox")
+
+
+otb.path  = "C:\\OTB-7.2.0-Win64\\bin"
+library(raster)
+library(tidyverse)
+library(sf)
+library(sp)
+library(rgdal)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(snowfall)
+library(GSIF)
+library(plyr) # used in snowfall env
+library(rgeos) # used in snowfall env
+library(gdalUtils) # used in snowfall env
+library(spatialEco) # used in classification
+library(randomForest) # used for classification
+library(velox) # used for classification
+```
+
+
+## 1.2. Input/Outputs
+
+```{r}
+input_imgs = "C:/Users/Arthur/Documents/data/hrrs_work/land_classification_output/"
+input_deep = "../data/deep_zones/"
+tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
+  
+output_dir = "C:/Users/Arthur/Documents/data/hrrs_work/land_classification_output/deglint/"
+```
+
+create the directories 
+
+```{r}
+for(i in c(output_dir)){
+  if(file.exists(i)){}else{
+    dir.create(i)}
+}
+
+```
+
+
+## 2. glint correction
+
+Select images to fix and corresponding deep zone shapefiles
+
+```{r}
+imgs = dir(input_imgs, pattern=".tif$", full.names=T)
+to_fix = c(2,3)
+gi = imgs[to_fix]
+
+dz = dir(input_deep, pattern=".shp$", full.names=T)
+corresponding_shp = c(7,8)
+dz = dz[corresponding_shp]
+```
+
+```{r}
+i=2
+
+r = brick(gi[i])
+if(nlayers(r)==21){
+  r = brick(gi[i])[[1:8]]
+  names(r) = c("C","B","G","Y","R","RE","N","N2")
+} else {
+  r = brick(gi[i])[[1:4]]
+  names(r) = c("B","G","R","N")
+}
+
+d = st_read(dz[i])
+
+tdi_img = tdi_table[str_detect(as.character(gi[i]), as.character(tdi_table$id_part)),]
+tdi_img$bands = gsub(" ","",tdi_img$bands)
+tdi_img = subset(tdi_img, tdi_img$bands != "P")
+tdi_img$tdi = as.numeric(tdi_img$tdi)
+tdis = unique(tdi_img$tdi)
+
+if(length(tdis)==4){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+  }
+
+tdis = unique(tdi_img$tdi)
+  
+for(k in seq_along(tdis)){
+  
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+    
+  rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+  d = st_transform(d, crs(rs))
+  rdz = readAll(crop(rs,d))
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
+  
+  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
+  
+  Lg = list()
+  
+  r2 = rs
+
+  for(b in 1:nlayers(rs)){
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = rs[[b]] - fg * Lg[[b]]
+  }
+
+  names(r2)=names(rs)
+  
+  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
+  
+  if(k==length(tdis)){
+    r3 = r3[[names(r)]]
+    
+    writeRaster(r3, paste0(output_dir,gsub("(.*)output/","",gi[i])), overwrite=T)
+  } 
+}
+# }
+
+
+```
+
+# OLD
+
+```{r}
+p_class = dir("D:/arthur/digitalglobe_archives/water_mask/",pattern=".gpkg$",full.names=T)
+deep_zones = dir("D:/arthur/digitalglobe_archives/water_mask/deep_zones",full.names=T, pattern=".shp$")
+tdi_table = read.csv("../data/radiometric_calibration_parameters.csv")
+deglint_out = "D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/"
+
+ydf = data.frame(1:8)
+ydf = cbind(ydf, c(2011,2013,2013,2013,2013,2017,2019,2019))
+colnames(ydf)=c("index","year")
+
+for(i in 3:length(p_class)){
+  
+r = brick(glint_imgs[i])
+cs = st_read(p_class[i])
+
+if(ydf[i,2]==2011){
+  rules = r2011
+  }
+
+if(ydf[i,2]==2013){
+  rules = r2013
+}
+
+if(ydf[i,2]==2017){
+  rules = r2017
+}
+
+if(ydf[i,2]==2019){
+  rules = r2019
+}
+
+wm = cs %>% 
+  filter(class %in% rules) %>% 
+  st_union() %>% 
+  st_cast("POLYGON")
+
+r = mask(r,as_Spatial(wm))
+
+# glint correction
+
+tdi_img = tdi_table[str_detect(as.character(glint_imgs[i]), as.character(tdi_table$id_part)),]
+tdi_img$bands = gsub(" ","",tdi_img$bands)
+tdi_img = subset(tdi_img, tdi_img$bands != "P")
+tdi_img$tdi = as.numeric(tdi_img$tdi)
+tdis = unique(tdi_img$tdi)
+
+if(length(tdis)==4){
+    tdi_img[tdi_img$tdi==tdis[2],]$tdi = tdis[4]
+  }
+
+tdis = unique(tdi_img$tdi)
+
+if(nlayers(r)==8){names(r) = c("C","B","G","Y","R","RE","N","N2")}
+if(nlayers(r)==4){names(r) = c("B","G","R","N")}
+  
+dz = readOGR(deep_zones[i])
+  
+for(k in seq_along(tdis)){
+  
+  bands = subset(tdi_img$bands, tdi_img$tdi==tdis[k])
+    
+  rs = subset(r,tdi_img[tdi_img$tdi==tdis[k],]$bands)
+  dz = spTransform(dz, crs(rs))
+  rdz = readAll(crop(rs,dz))
+  
+  max.coords = xyFromCell(rdz,which.max(rdz[[nlayers(rdz)]]))
+  max.coords.pixel = SpatialPoints(max.coords)
+  max.pixel = raster::extract(rdz,max.coords.pixel)
+  
+  min.coords = xyFromCell(rdz,which.min(rdz[[nlayers(rdz)]]))
+  min.coords.pixel = SpatialPoints(t(as.data.frame(min.coords[1,])))
+  min.pixel = raster::extract(rdz,min.coords.pixel)
+  
+  Lg_nir = max.pixel[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]
+  
+  fg = (rs[[nlayers(rs)]] - min.pixel[[nlayers(rs)]]) / Lg_nir
+  
+  Lg = list()
+  
+  r2 = rs
+
+  for(b in 1:nlayers(rs)){
+    Lg[[b]] = max.pixel[[b]] - min.pixel[[b]]
+    r2[[b]] = rs[[b]] - fg * Lg[[b]]
+  }
+
+  names(r2)=names(rs)
+  
+  if(k==1){r3=r2} else{r3 = addLayer(r3,r2)}
+  
+  if(k==length(tdis)){
+    r3 = r3[[names(r)]]
+    writeRaster(r3, paste0(deglint_out,str_sub(glint_imgs[i],-55)), overwrite=T)
+  } 
+}
+}
+
+```
+
+```{r}
+input_dir = "D:/arthur/digitalglobe_archives/deglint_hochberg/hochberg_destripe/"
+output_dir = "D:/arthur/digitalglobe_archives/ready_mosaics/"
+
+dir(input_dir,full.names=T,pattern=".tif$")
+
+for(i in 1:length(glint_imgs)){
+  # i=1
+  r1 = brick(dir(input_dir,full.names=T,pattern=".tif$")[i])
+  r2 = brick(glint_imgs[i])
+
+  for(j in 1:nlayers(r1)){
+    if(max(getValues(r1[[j]]), na.rm=T) == min(getValues(r1[[j]]), na.rm=T)){
+      r1[[j]]=r2[[j]]  
+    }
+  }
+
+  # r3 = merge(r1,r2)
+  r3 = mosaic(r1,r2, fun=min)
+  
+  
+  if(nlayers(r1)==8){names(r3) = c("C","B","G","Y","R","RE","N","N2")}
+  if(nlayers(r1)==4){names(r3) = c("B","G","R","N")}
+  writeRaster(r3, paste0(output_dir,str_sub(glint_imgs[i],-55)), overwrite=T)
+}
+```
+

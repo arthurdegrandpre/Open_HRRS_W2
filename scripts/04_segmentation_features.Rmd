@@ -40,11 +40,11 @@ library(rgdal)
 otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
 
 #input
-boa_input = dir("C:/Users/Arthur/Documents/rscripts/Open_HRRS_W2/data/work/destripe_output/",full.names=T,pattern=".tif$") # Relative paths NOT ACCEPTED because of cmd call
+boa_input = normalizePath(dir("../data/work/destripe_output/",full.names=T,pattern=".tif$"))
 MUL_input = boa_input[str_detect(boa_input, "MUL")]
 
 #output
-segmentation_output = paste0("C:/Users/Arthur/Documents/rscripts/Open_HRRS_W2/data/work/segmentation_output/") # Relative paths NOT ACCEPTED because of cmd call
+segmentation_output = normalizePath(paste0("../data/work/segmentation_output/"))
 features_output = paste0(segmentation_output,"/features/")
 ```
 
@@ -131,18 +131,24 @@ write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.name
 }
 ```
 
+
 # 2. Segmentation
 
 Segmentation parameters will greatly affect the segmentation quality. If segmentation quality seems bad after visual validation, it is possible to change the parameters in the following chunk. The current values are based on simple tweaking and visual cues. **Eventually**, maybe use SegOptim for optimization of segmentation parameters https://www.sciencedirect.com/science/article/abs/pii/S0303243418303556.  
 
-The output from this section is a simple shapefile
+The output from this section is a simple shapefile.
+
+IMPORTANT NOTE : When performing segmentation, make sure to delete previous results of the same name, as they won't be properly overwritten.
 
 ```{r segmentation, eval=F}
+
+r = raster(MUL_input[1])
+plot(r)
 
 for(i in seq_along(MUL_input)){
 
   meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
-               filter.meanshift.ranger   = "0.0015",  # default 15 # low for 2019
+               filter.meanshift.ranger   = "0.00125",  # default 15 # low for 2019
                filter.meanshift.thres    = "0.001",  # default 0.1
                filter.meanshift.maxiter  = "100",    # default 100
                filter.meanshift.minsize  = "5",     # default 100
