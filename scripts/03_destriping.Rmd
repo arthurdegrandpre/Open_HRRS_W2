@@ -54,7 +54,7 @@ to_correct = MUL_input[c(1)] # select images that must be corrected
 
 
 stripe_path = dir("../data/subset/destriping/", pattern="stripe.gpkg$", full.names=T)
-stripe_path = stripe_path[1]
+stripe_path = stripe_path[1] # to select specific image
 
 
 plot(st_read(stripe_path[1])) # for visualisation

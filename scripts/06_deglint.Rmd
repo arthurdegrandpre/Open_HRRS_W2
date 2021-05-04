@@ -29,9 +29,9 @@ In this script, every image has to be treated independently since they require d
 otb.path  = "C:\\OTB-7.2.0-Win64\\bin"
 library(raster)
 library(tidyverse)
-library(sf)
+library(sf) 
 library(sp)
-library(rgdal)
+library(rgdal) 
 library(parallel)
 library(doParallel)
 library(foreach)

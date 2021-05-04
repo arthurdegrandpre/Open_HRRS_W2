@@ -35,6 +35,8 @@ library(rgdal)
 
 ## 1.2. Inputs / Outputs
 
+# NOTE : OTB doesn't accept spaces in path to rasters so make sure your complete path is free from spaces.
+
 ```{r}
 #OTB setup
 otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
@@ -46,6 +48,7 @@ MUL_input = boa_input[str_detect(boa_input, "MUL")]
 #output
 segmentation_output = normalizePath(paste0("../data/work/segmentation_output/"))
 features_output = paste0(segmentation_output,"/features/")
+
 ```
 
 create the directories
@@ -103,7 +106,7 @@ feature.HaralickTextureExtraction <- function(
                            parameters.min = "0", #input image minimum value
                            parameters.max = "1", #input image maximum value
                            parameters.xrad = "2", #xradius in pixels
-                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.yrad = "2", #yradius in pixels
                            parameters.xoff = "1", #xoffset in pixels
                            parameters.yoff = "1", #yoffset in pixels
                            parameters.nbbin = "8" # bins per axis of histogram
@@ -148,13 +151,13 @@ plot(r)
 for(i in seq_along(MUL_input)){
 
   meanshift.segm(filter.meanshift.spatialr = "5",      # default 5
-               filter.meanshift.ranger   = "0.00125",  # default 15 # low for 2019
+               filter.meanshift.ranger   = "0.00125",  # default 15 # low for 2019 
                filter.meanshift.thres    = "0.001",  # default 0.1
                filter.meanshift.maxiter  = "100",    # default 100
                filter.meanshift.minsize  = "5",     # default 100
                raster.in = gsub("/","\\\\",MUL_input[i]),
                out.path  = gsub("/","\\\\",segmentation_output),
-               name      = str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1])
+               name      = str_split(gsub(".*\\\\","",MUL_input[i]),"\\.")[[1]][1])
 
 }
 

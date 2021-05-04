@@ -72,7 +72,7 @@ training_objects
 raster_position = 1 # object to use in rasters 
 training_position = 2 # object to use in training_objects
 
-#output
+# output
 tiles_tif_output = normalizePath(paste0(features_input,"/tiles/"))
 tiles_shp_output = normalizePath(paste0(tiles_tif_output,"/segmentation/"))
 tiles_classif_output = normalizePath(paste0(tiles_tif_output,"/landmask//"))
