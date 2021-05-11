@@ -19,6 +19,8 @@ In this script, every image has to be treated independently since they require d
 
 # 1. Setting up the R environment
 
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
+
 ## 1.1. Libraries
 ```{r, message=F, warning=F}
 # for velox installation 

@@ -20,7 +20,7 @@ Based on the results of this script, land and water can be masked for stripe and
 
 ## 1.1. Libraries
 
-First, load the required libraries. They can be installed using the *install.packages("package.name")* function.
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function.
 
 ```{r, message=F, warning=F}
 rm(list=ls()) ; gc()

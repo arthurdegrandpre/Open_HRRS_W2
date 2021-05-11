@@ -21,7 +21,7 @@ This script is used for calibration and correction of the radiometric signal fro
 
 ## 1.1. Libraries
 
-All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage") function.
+All libraries must be installed prior to loading them. Installing them individually is the best course of action, using the install.packages("nameofthepackage", dependencies = T) function.
 
 **important : ** Do not forget to change the tmpdir path in the setup code chunk to a disk with a lot of free space. The raster options prevent the data from being all loaded into the RAM and crashing the process due to lack of memory, thus requiring to write large amounts of intermediate products.
 
@@ -48,7 +48,7 @@ rasterOptions(tmpdir="D:/Arthur/temp") # requires a lot of space for temporary f
 ## 1.2. Inputs and Outputs
 
 ```{r}
-path_to_images = "../data/digitalglobe_image/" # missing part to the path variable in image summaries
+path_to_images = "../data/digitalglobe_image/" # directory containing all satellite images (can be in different folders, to be found with recursive search)
 
 arc_output = "../data/work/arc_output/" # path where to write absolute radiometric calibration output
 toa_output = "../data/work/toa_output/" # path where to write top of atmosphere reflectance output

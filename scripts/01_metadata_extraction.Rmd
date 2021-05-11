@@ -17,7 +17,7 @@ This first script is used to extract and validate metadata from high resolution 
 
 ## 1.1. Libraries
 
-All libraries must be installed prior to loading them. Installing them individually is simple using the install.packages("nameofthepackage") function, which can also be used to update the packages.
+All libraries must be installed prior to loading them. Installing them individually is simple using the install.packages("nameofthepackage", dependencies = T) function, which can also be used to update the packages.
 
 ```{r setup, message=F, warning=F}
 

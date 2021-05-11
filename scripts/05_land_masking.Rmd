@@ -9,7 +9,7 @@ output:
 ---
 
 # NOTE : 
- 3.2 output goes into wrong folder (?)
+ 3.2 output goes into wrong folder (?) (one folder lower)
 
 # Intro
 
@@ -28,7 +28,7 @@ Multiple images of the same region and satellite acquisition should be able to b
 
 ## 1.1. Libraries
 
-First, load the required libraries. They can be installed using the *install.packages("package.name")* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
 
 ```{r, message=F, warning=F}
 rm(list=ls()) ; gc()

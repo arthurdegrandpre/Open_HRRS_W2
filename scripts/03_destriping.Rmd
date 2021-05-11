@@ -8,7 +8,7 @@ output:
     toc_float: yes
 ---
 # Notes : to fix
- 1. Is it adjusted to the mean or to the first stripe ? (probably the first stripe!)
+ 1. Currently adjusting radiometry to the first stripe on the left. Should adjust to image mean.
 
 
 
@@ -25,7 +25,7 @@ Doing so requires two manually created inputs (can be done in QGIS or ArcGIS) :
 
 # 1.1. Libraries
 
-First, load the required libraries. They can be installed using the *install.packages("package.name")* function.
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function.
 
 ```{r setup, warning=F, message=F}
 rm(list=ls()) ; gc()
