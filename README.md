@@ -6,6 +6,7 @@ output:
   html_document: 
     keep_md: yes
 ---
+This project is licensed under the terms of the cc-by-nc-sa license.  
 
 # Open_HRRS_W2 - V0.01 - README
 
