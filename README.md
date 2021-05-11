@@ -9,7 +9,7 @@ output:
 
 # Open_HRRS_W2 - V0.01 - README
 
-This repository aims to provide an open-sourced high resolution remote sensing workflow for submerged vegetation cover mapping in optically complex (type-2) waters.  
+This repository aims to provide an open-sourced high resolution remote sensing workflow for submerged vegetation cover mapping in optically complex (type-2) waters in a context of scarce validation data.  
 It relies heavily on object based image analysis methods, such as feature extraction and image segmentation, which are provided by **Orfeo-Toolbox**.  
 
 ## Requirements
