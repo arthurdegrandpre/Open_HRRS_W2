@@ -30,6 +30,8 @@ Multiple images of the same region and satellite acquisition should be able to b
 
 First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
 
+Some packages might require a valid installation of Rtools 4.0 or higher
+
 ```{r, message=F, warning=F}
 rm(list=ls()) ; gc()
 
@@ -46,7 +48,7 @@ library(parallel)
 library(doParallel)
 library(foreach)
 library(snowfall)
-library(GSIF)
+library(GSIF) # might be an issue without an installation of Rtools
 library(plyr) # used in snowfall env
 library(rgeos) # used in snowfall env
 library(gdalUtils) # used in snowfall env
@@ -258,8 +260,8 @@ i=raster_position
 ### tiling
 
 obj = GDALinfo(input_rasters[i]) # GDALinfo doesn't directly read the raster, it only retrieves the metadata
-tile.lst = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE) # this line makes a list of polygons so they can be written
-tile.tbl = getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE) # this line makes a dataframe that makes it easy to call the tiles
+tile.lst = GSIF::getSpatialTiles(obj, block.x=500, return.SpatialPolygons=TRUE) # this line makes a list of polygons so they can be written
+tile.tbl = GSIF::getSpatialTiles(obj, block.x=500, return.SpatialPolygons=FALSE) # this line makes a dataframe that makes it easy to call the tiles
 
 
 # this section, until the sfStop() function launches the parallel execution of multiple R clients. Use sfStop to kill it, or at least make sure all processes are ended.
