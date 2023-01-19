@@ -92,7 +92,7 @@ write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.name
 ```
 
 
-For a better classification, additionnal features can be added to the image, such as texture, local statistics and edge extractions. All those layers can be used as additionnal when classifying objects.
+For a better classification, additional features can be added to the image, such as texture, local statistics and edge extractions. All those layers can be used as additional when classifying objects.
 
 Let's define the feature extraction function using Orfeo toolbox's command line interface
 
@@ -157,7 +157,7 @@ for(i in seq_along(MUL_input)){
                filter.meanshift.minsize  = "5",     # default 100
                raster.in = gsub("/","\\\\",MUL_input[i]),
                out.path  = gsub("/","\\\\",segmentation_output),
-               name      = str_split(gsub(".*\\\\","",MUL_input[i]),"\\.")[[1]][1])
+               name      = str_split(basename(MUL_input[i])))
 
 }
 
@@ -193,13 +193,13 @@ otb.ramlimit = 16000
 feature.HaralickTextureExtraction(
                            raster.in = gsub("/","\\\\",MUL_input[i]),
                            out.path  = paste0(gsub("/","\\\\",features_output),"haralick"),
-                           name      = paste0("n_ht_",str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1]),
+                           name      = paste0("n_ht_",basename(MUL_input[i])),
                            channel = "8",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
                            parameters.max = "1", #input image maximum value
                            parameters.xrad = "5", #xradius in pixels
-                           parameters.yrad = "5", #yradisu in pixels
+                           parameters.yrad = "5", #yradius in pixels
                            parameters.xoff = "10", #xoffset in pixels
                            parameters.yoff = "10", #yoffset in pixels
                            parameters.nbbin = "64" # bins per axis of histogram
@@ -208,7 +208,7 @@ feature.HaralickTextureExtraction(
 feature.HaralickTextureExtraction(
                            raster.in = gsub("/","\\\\",MUL_input[i]),
                            out.path  = paste0(gsub("/","\\\\",features_output),"haralick"),
-                           name      = paste0("n_ht_",str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1]),
+                           name      = paste0("n_ht_",basename(MUL_input[i])),
                            channel = "4",   #default 1, selected channel index in input image
                            texture   = "simple",  #default simple, also available "advanced" or "higher"
                            parameters.min = "0", #input image minimum value
@@ -256,7 +256,7 @@ for(i in seq_along(MUL_input)){
   }
   }
   
-  writeRaster(r, paste0(features_output,str_split(gsub(".*/","",MUL_input[i]),"\\.")[[1]][1],".tif"), overwrite=T)
+  writeRaster(r, paste0(features_output,basename(MUL_input[i])), overwrite=T)
 }
 
 ```
