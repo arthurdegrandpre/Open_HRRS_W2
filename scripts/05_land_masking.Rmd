@@ -295,9 +295,7 @@ t_imgs = normalizePath(dir(tiles_tif_output, full.names=T, pattern=".tif$"))
                name      = gsub(".tif.*","",gsub(".*tiles","",t_imgs[i])))
 
  }
-gsub("/","\\\\",t_imgs[i])
-gsub("/","\\\\",tiles_shp_output)
-gsub(".tif.*","",gsub(".*tiles","",t_imgs[i]))
+
 ```
 
 # 3. land masking  
