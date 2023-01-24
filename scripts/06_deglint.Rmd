@@ -11,9 +11,9 @@ This is an incomplete script of the Open HRRS W2 workflow for open source high r
   
 This script comes after land masking and will perform empirical deglinting of water pixels, based on the Hochberg 2003 method. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.  
   
-A manually delinieated polygon of an area of optically deep water is required to run this script.  
+A manually delineated polygon of an area of optically deep water is required to run this script.  
 
-While the results appear useable, it is unclear wether they should be implemented to help the classification or only later to limit errors in complexity estimation.
+While the results appear usable, it is unclear whether they should be implemented to help the classification or only later to limit errors in complexity estimation.
 
 In this script, every image has to be treated independently since they require different training sets and inputs.
 

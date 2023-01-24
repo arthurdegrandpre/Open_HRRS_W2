@@ -1,0 +1,456 @@
+---
+title: "05_landmask"
+author: "Arthur de Grandpré"
+date: '2023-01-24'
+output: html_document
+---
+
+
+# Intro
+
+This is the fifth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
+
+This script is used to perform a first classification to separate terrestrial pixels from aquatic pixels. This is an optional step if the image does not require deglinting, but it is critical if the image does require deglinting. Since deglinting is not fully implemented in the workflow yet, a simple landmask that keeps floating and emerging vegetation is acceptable. For a full deglinting of water pixels, a mask including all objects that could generate a NIR signature, such as dense and high vegetation canopy is necessary.  
+
+This step requires manual work in the form of constructed training sets (multipolygon files, as shp or gpkg) built from QGIS or ArcGIS.  
+
+It treats one image at a time, in order to allow for selection of the right training sets.
+
+Multiple images of the same region and satellite acquisition should be able to be classified based on the same classifier training.
+
+# 1. Setting up the R environment
+
+## 1.1. Libraries
+
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
+
+Some packages might require a valid installation of Rtools 4.0 or higher
+
+```{r, message=F, warning=F}
+rm(list=ls()) ; gc()
+
+# NEW PACKAGES
+```
+
+
+```{r, message=F, warning=F}
+# rm(list=ls()) ; gc()
+# 
+# # for velox installation 
+# # library(devtools)
+# # install_github("hunzikp/velox")
+# 
+# library(raster)
+# library(tidyverse)
+# library(sf)
+# library(sp)
+# library(rgdal)
+# library(parallel)
+# library(doParallel)
+# library(foreach)
+# library(snowfall)
+# library(GSIF) # might be an issue without an installation of Rtools
+# library(plyr) # used in snowfall env
+# library(rgeos) # used in snowfall env
+# library(gdalUtils) # used in snowfall env
+# library(spatialEco) # used in classification
+# library(randomForest) # used for classification
+# library(velox) # used for classification
+```
+
+## 1.2. Inputs / Outputs
+
+```{r}
+
+#OTB setup
+otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
+
+#input
+features_input = "../data/work/segmentation_output/features/"
+input_rasters = dir(features_input,full.names=T,pattern=".tif$")
+input_t_obj = "../data/training_sets/land/" #location of training sets.
+training_objects = dir(input_t_obj, full.names=T, pattern = ".gpkg$")
+training_objects
+
+raster_position = 1 # object to use in rasters 
+training_position = 1 # object to use in training_objects
+
+# output
+tiles_tif_output = normalizePath(paste0(features_input,"/tiles/"))
+tiles_shp_output = normalizePath(paste0(tiles_tif_output,"/segmentation/"))
+tiles_classif_output = normalizePath(paste0(tiles_tif_output,"/landmask//"))
+landmask_output = "../data/work/land_classification_output/"
+
+```
+
+create the directories
+
+```{r}
+for(i in c(tiles_tif_output,tiles_shp_output,tiles_classif_output, landmask_output)){
+  if(file.exists(i)){}else{
+    dir.create(i)}
+}
+
+# file.copy(from=boa_input, to=deglint_output, recursive=F, overwrite=F) # so all files are still within the same folder, even if they are not all corrected.
+
+```
+
+## 1.3. Define functions
+
+# Segmentation
+
+```{r define segmentation function, eval=T}
+otb_seg_file = function(raster.in = NULL,
+                        out.path = NULL,
+                        name = "",
+                        filter.meanshift.spatialr = "5",   #default 5
+                        filter.meanshift.ranger   = "0.05",  #default 15
+                        filter.meanshift.thres    = "0.05", #default 0.1
+                        filter.meanshift.maxiter  = "100", #default 100
+                        filter.meanshift.minsize  = "1",  #default 100
+                        path = "C:\\OTB-7.1.0-Win64\\bin",
+                        ramlimit = 16000){
+  
+  
+  # ## test chunk
+  # raster.in = normalizePath(tar_read(resample)[1])
+  # name = basename(raster.in)
+  # out.path = gsub("/","\\\\",output)
+  # filter.meanshift.spatialr = "15"   #default 5 # 5(too many objects) to 3 (too few objects) to 4 (unbalanced)
+  # filter.meanshift.ranger   = "0.03"  #default 15 # 0.01 (too many objects) to 0.05 (too few objects) to 0.02
+  # filter.meanshift.thres    = "0.2" #default 0.1
+  # filter.meanshift.maxiter  = "100" #default 100
+  # filter.meanshift.minsize  = "1"  #default 100
+  # path = "C:\\OTB-7.1.0-Win64\\bin"
+  # ramlimit = 16000
+  ## test chunk \
+  
+  otb.path <<- path
+  otb.ramlimit <<- ramlimit
+  
+  # Set configuration      
+  conf <- paste("-in",raster.in,"-filter meanshift","-filter.meanshift.spatialr",filter.meanshift.spatialr,
+                "-filter.meanshift.ranger",filter.meanshift.ranger,"-filter.meanshift.thres",filter.meanshift.thres,
+                "-filter.meanshift.maxiter",filter.meanshift.maxiter,"-filter.meanshift.minsize",filter.meanshift.minsize,
+                "-mode vector","-mode.vector.out",paste0(out.path,"/",name,".shp"))
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_Segmentation ",conf))
+  
+  write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+
+
+otb_seg_dir = function(input_source = NULL,
+                       output_path = NULL,
+                       filter.meanshift.spatialr = "15",   #default 5 # 5(too many objects) to 3 (too few objects) to 4 (unbalanced)
+                       filter.meanshift.ranger   = "0.03",  #default 15 # 0.01 (too many objects) to 0.05 (too few objects) to 0.02
+                       filter.meanshift.thres    = "0.2", #default 0.1
+                       filter.meanshift.maxiter  = "100", #default 100
+                       filter.meanshift.minsize  = "1",  #default 100
+                       path = "C:\\OTB-7.1.0-Win64\\bin",
+                       ramlimit = 16000){
+  
+  ### TESTING CHUNK
+  # input_source = tar_read(resample)
+  # output_path = paste0(tar_read(output),"/")
+  # filter.meanshift.spatialr = "15"   #default 5 # 5(too many objects) to 3 (too few objects) to 4 (unbalanced)
+  # filter.meanshift.ranger   = "0.03"  #default 15 # 0.01 (too many objects) to 0.05 (too few objects) to 0.02
+  # filter.meanshift.thres    = "0.2" #default 0.1
+  # filter.meanshift.maxiter  = "100" #default 100
+  # filter.meanshift.minsize  = "1"  #default 100
+  # path = "C:\\OTB-7.1.0-Win64\\bin"
+  # ramlimit = 16000
+    
+  ### END OF TESTING CHUNK
+  
+  if(dir.exists(output_path)==F){
+    dir.create(output_path)
+  }else{
+    unlink(dir(output_path, full.names=T))
+  }
+  
+  otb.path <<- path
+  otb.ramlimit <<- ramlimit
+  
+  imgs = normalizePath(input_source)
+  output = normalizePath(output_path)
+  
+  for(i in seq_along(imgs)){
+      otb_seg_file(raster.in = gsub("/","\\\\",normalizePath(imgs[i])),
+                 out.path = gsub("/","\\\\",normalizePath(output)),
+                 name = basename(input_source)[i],
+                 filter.meanshift.spatialr = filter.meanshift.spatialr,   #default 5
+                 filter.meanshift.ranger   = filter.meanshift.ranger,  #default 15
+                 filter.meanshift.thres    = filter.meanshift.thres, #default 0.1
+                 filter.meanshift.maxiter  = filter.meanshift.maxiter, #default 100
+                 filter.meanshift.minsize  = filter.meanshift.minsize  #default 100
+                 # path = path
+    )
+  }
+  
+  return(dir(output,full.names=T, pattern=".shp$"))
+  
+}
+
+```
+
+# Train
+
+```{r}
+rf_train = function(input_segments = segs2,
+                    input_rasters = ras,
+                    thresh = threshold,
+                    out = output){
+  ### test ###
+  # input_segments = dir("data/lv2_training/fix", full.names=T, pattern=".gpkg")[6]
+  # input_rasters = tar_read(Lv2_VIs)[6]
+  ####
+  gc()
+  s = st_read(input_segments) %>% 
+    dplyr::select(-img)
+  r = rast(input_rasters)
+  
+  names(r) = c("C","B","G","Y","R","RE",
+               "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
+               "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+               "NDVI","SAVI","EVI","NDAVI","WAVI")
+  
+  zonal_s = exact_extract(r,s, c("min","max","mean","stdev"), progress=F)
+  
+  s2 = cbind(s,zonal_s) %>% 
+    drop_na()
+  
+  mx = ranger::ranger(as.factor(class) ~ ., data = st_drop_geometry(s2[,-1]))
+  
+  saveRDS(mx, paste0(out,basename(input_rasters),".RDS"))
+  
+  return(mx)
+}
+```
+
+# Predict
+
+```{r}
+predict_sav = function(in_model = NULL,
+                       in_raster = NULL,
+                       in_seg = NULL,
+                       out_path = NULL,
+                       name = NULL,
+                       chunk_size = 1000){
+  
+# test ###
+
+  # in_model = rep(in_model,length(in_raster))[4]
+  # in_raster = dir(paste0(output,"har"), full.names=T)[4]
+  # in_seg = dir(paste0(output,"seg"), full.names=T,pattern=".shp$")[4]
+  # out_path = rep(paste0(output,"pred"),length(in_raster))[4]
+  # name = gsub(".tif","", basename(in_raster))[4]
+
+####
+
+  gc()
+  
+  r = rast(in_raster)
+  
+  if(terra::nlyr(r)==16){
+    names(r) = c("b1","b2","b3","b4","b5","b6","b7","b8","ha1","ha2","ha3","ha4","ha5","ha6","ha7","ha8")
+  }else{
+    names(r) = c("C","B","G","Y","R","RE",
+                 "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
+                 "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+                 "NDVI","SAVI","EVI","NDAVI","WAVI")
+  }
+    
+  sx = crop2raster_loop(in_raster,
+                   in_seg,
+                   chunksize = 100000,
+                   write = F)
+  
+  s = sx %>% 
+    st_make_valid() %>% 
+    dplyr::filter(st_is(.,"POLYGON")) %>% 
+    dplyr::mutate(class = as.factor(NA))
+  
+  zx = exact_extract(r,s, c("min","max","mean","stdev"), progress=F, max_cells_in_memory = 100000)
+  
+    s2 = cbind(s,zx) %>%
+      drop_na(4)
+  
+  # tryCatch({
+  #   s2 = cbind(s,zx) %>%
+  #     drop_na(min.b1)
+  # }, error = function(e){
+  #   s2 = cbind(s,zx) %>%
+  #     drop_na(4)
+  # }
+  #   
+  # )
+  
+
+  model = readRDS(in_model)
+  
+  sx2 = s2 %>%
+    dplyr::select(-2) %>% 
+    dplyr::mutate(class = ranger::predictions(stats::predict(model, st_drop_geometry(.)))) %>% 
+    dplyr::group_by(class) %>% 
+    dplyr::summarise() %>% 
+    st_buffer(0) %>% 
+    st_make_valid() %>% 
+    st_write(dsn = paste0(out_path,"/",name,".gpkg"),
+             driver = "GPKG",
+             delete_dsn = T)
+
+}
+
+
+predict_sav_dir = function(in_model = NULL, 
+                           in_raster = NULL,
+                           in_seg = NULL,
+                           out_path = NULL){
+  #### test ###
+  # in_raster = tar_read(Lv1_haralick)
+  # in_seg = tar_read(Lv1_seg)
+  # in_model = tar_read(trained_models)
+  # out_path = "output/Lv1_masks/"
+  # in_model = in_model
+  # in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$")
+  # in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp")
+  # out_path = paste0(output, "pred")
+  ####
+  if(dir.exists(out_path)==FALSE){
+    dir.create(out_path)
+  }
+  
+  unlink(paste0(out_path,"/*"))
+  
+  plan(sequential)
+  
+  future_mapply(predict_sav,
+                in_model = rep(in_model,length(in_raster)),
+                in_raster = in_raster,
+                in_seg = in_seg,
+                out_path = rep(out_path,length(in_raster)),
+                name = gsub(".tif","", basename(in_raster)),
+                future.seed = TRUE)
+  
+  return(dir(out_path, pattern=".gpkg$", full.names=T))
+  
+}
+```
+
+# Tile classif
+
+```{r}
+classif_tiles = function(in_haralick,
+                         in_image,
+                         in_model,
+                         output,
+                         spatialr = "15",
+                         ranger = "0.03",
+                         thresh = "0.2"){
+  
+  # ### test ###
+  # in_model = tar_read(Lv2_training)[1]
+  # in_haralick = tar_read(Lv2_VIs)[1]
+  # in_image = dir(paste0(output,"lv1_products"), pattern=".tif$",full.names=T)
+  # output = "output/lv2_tiles/"
+  # i=1
+  # spatialr = "5"
+  # ranger = "0.001"
+  # thresh = "0.001"
+  # ###
+  
+  if(!dir.exists(paste0(output,"masks"))){
+    dir.create(paste0(output,"masks"))
+  }
+  
+  foreach(i = 1:length(in_image)) %do% {
+    
+    if(dir.exists(output)){
+      unlink(dir(output, full.names=T, ".tif"))
+    }else{
+      dir.create(output)
+    }
+    
+    if(dir.exists(paste0(output,"seg"))){
+      unlink(dir(paste0(output,"seg"), full.names=T))
+    }else{
+      dir.create(paste0(output,"seg"))
+    }
+    
+    if(dir.exists(paste0(output,"har"))){
+      unlink(dir(paste0(output,"har"), full.names=T))
+    }else{
+      dir.create(paste0(output,"har"))
+    }
+    
+    if(dir.exists(paste0(output,"pred"))){
+      unlink(dir(paste0(output,"pred"), full.names=T))
+    }else{
+      dir.create(paste0(output,"pred"))
+    }
+    
+    # make image tiles (terra)
+    # i=1
+    r = terra::rast(in_image[i]) %>% 
+      terra::mask(rast(in_image[i])[[1]])
+    
+    agg = r %>%
+      aggregate(., fact = 500, fun = min)
+    
+    tiles = r %>% 
+      makeTiles(.,
+                agg,
+                filename = paste0(output,"/_.tif"),
+                na.rm=T)
+    
+    
+    # make haralick tiles (terra)
+    
+    r = terra::rast(in_haralick[i]) %>% 
+      terra::mask(rast(in_haralick[i])[[1]])
+    
+    agg = r %>%
+      terra::aggregate(., fact = 500, fun = min)
+    
+    tiles = r %>% 
+      terra::makeTiles(.,
+                       agg,
+                       filename =  paste0(output,"/har/_.tif"),
+                       na.rm=T)
+    
+    # segment
+    
+    otb_seg_dir(input_source = dir(output,full.names=T,pattern=".tif$"),
+                output_path = paste0(output, "seg"),
+                filter.meanshift.spatialr = spatialr,   #default 5 # 5(too many objects) to 3 (too few objects) to 4 (unbalanced)
+                filter.meanshift.ranger   = ranger,  #default 15 # 0.01 (too many objects) to 0.05 (too few objects) to 0.02
+                filter.meanshift.thres    = thresh, #default 0.1
+                filter.meanshift.maxiter  = "100", #default 100
+                filter.meanshift.minsize  = "1",  #default 100
+                path = "C:\\OTB-7.1.0-Win64\\bin",
+                ramlimit = 16000)
+    
+    # predict
+    
+    predict_sav_dir(in_model = in_model[i],
+                    in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$"),
+                    in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp"),
+                    out_path = paste0(output, "pred"))
+    
+    # merge
+    
+    ctiles = dir(paste0(output,"pred"),full.names=T,pattern=".gpkg")
+    m = foreach(j = 1:length(ctiles), .combine = rbind) %do% {st_read(ctiles[j])}
+    
+    write = m %>%
+      # filter(!str_starts(class, "l_")) %>% 
+      st_write(.,driver="gpkg",paste0(output,"masks/",gsub(".tif",".gpkg",basename(in_image[i]))), delete_layer=T)
+    
+  }
+  
+  return(dir(paste0(output,"masks/"), full.names=T, pattern=".gpkg"))
+
+}
+
+```

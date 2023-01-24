@@ -8,9 +8,6 @@ output:
     toc_float: yes
 ---
 
-# NOTE : 
- 3.2 output goes into wrong folder (?) (one folder lower)
-
 # Intro
 
 This is the fifth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
@@ -35,26 +32,33 @@ Some packages might require a valid installation of Rtools 4.0 or higher
 ```{r, message=F, warning=F}
 rm(list=ls()) ; gc()
 
-# for velox installation 
-# library(devtools)
-# install_github("hunzikp/velox")
+# NEW PACKAGES
+```
 
-library(raster)
-library(tidyverse)
-library(sf)
-library(sp)
-library(rgdal)
-library(parallel)
-library(doParallel)
-library(foreach)
-library(snowfall)
-library(GSIF) # might be an issue without an installation of Rtools
-library(plyr) # used in snowfall env
-library(rgeos) # used in snowfall env
-library(gdalUtils) # used in snowfall env
-library(spatialEco) # used in classification
-library(randomForest) # used for classification
-library(velox) # used for classification
+
+```{r, message=F, warning=F}
+# rm(list=ls()) ; gc()
+# 
+# # for velox installation 
+# # library(devtools)
+# # install_github("hunzikp/velox")
+# 
+# library(raster)
+# library(tidyverse)
+# library(sf)
+# library(sp)
+# library(rgdal)
+# library(parallel)
+# library(doParallel)
+# library(foreach)
+# library(snowfall)
+# library(GSIF) # might be an issue without an installation of Rtools
+# library(plyr) # used in snowfall env
+# library(rgeos) # used in snowfall env
+# library(gdalUtils) # used in snowfall env
+# library(spatialEco) # used in classification
+# library(randomForest) # used for classification
+# library(velox) # used for classification
 ```
 
 ## 1.2. Inputs / Outputs
@@ -95,6 +99,13 @@ for(i in c(tiles_tif_output,tiles_shp_output,tiles_classif_output, landmask_outp
 ```
 
 ## 1.3. Define functions
+
+NEW TILING
+
+```{r}
+
+```
+
 
 This function is for tiling so the classifier can be run in parallel. This makes it faster and more forgiving on memory usage.
 
@@ -185,60 +196,323 @@ zonal.stats.small = function (x, y, stats = c("min", "mean", "max"))
 }
 ```
 
-This function is used to perform classification within a tile, given a pre-trained random forest model. It can be parallelized.
 
-```{r, eval=T}
-classify_tiles = function(j,
-                          in.path.r = tiles_tif_output,
-                          in.path.shp = tiles_shp_output,
-                          out.path.shp.class = tiles_classif_output){
+## NEW 
 
-#   in.path.r = tiles_tif_output
-#   in.path.shp = tiles_shp_output
-#   out.path.shp.class = tiles_classif_output
-# j=278
+# Train
 
-in.path.r = dir(tiles_tif_output,".tif$",full.names=T)
-out.shp = paste0(paste0(out.path.shp.class,gsub(".tif.*","",sub(".*tiles/","",in.path.r))[j],".shp"))  
+```{r}
+rf_train = function(input_segments = segs2,
+                    input_rasters = ras,
+                    thresh = threshold,
+                    out = output){
+  ### test ###
+  # input_segments = dir("data/lv2_training/fix", full.names=T, pattern=".gpkg")[6]
+  # input_rasters = tar_read(Lv2_VIs)[6]
+  ####
+  gc()
+  s = st_read(input_segments) %>% 
+    dplyr::select(-img)
+  r = rast(input_rasters)
+  
+  names(r) = c("C","B","G","Y","R","RE",
+               "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
+               "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+               "NDVI","SAVI","EVI","NDAVI","WAVI")
+  
+  zonal_s = exact_extract(r,s, c("min","max","mean","stdev"), progress=F)
+  
+  s2 = cbind(s,zonal_s) %>% 
+    drop_na()
+  
+  mx = ranger::ranger(as.factor(class) ~ ., data = st_drop_geometry(s2[,-1]))
+  
+  saveRDS(mx, paste0(out,basename(input_rasters),".RDS"))
+  
+  return(mx)
+}
+```
 
-r = raster::brick(in.path.r[j])
-r = approxNA(r)
 
-if(nlayers(r)==17){
-  names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
-} else {
-  names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+```{r}
+predict_sav = function(in_model = NULL,
+                       in_raster = NULL,
+                       in_seg = NULL,
+                       out_path = NULL,
+                       name = NULL,
+                       chunk_size = 1000){
+  
+# test ###
+
+  # in_model = rep(in_model,length(in_raster))[4]
+  # in_raster = dir(paste0(output,"har"), full.names=T)[4]
+  # in_seg = dir(paste0(output,"seg"), full.names=T,pattern=".shp$")[4]
+  # out_path = rep(paste0(output,"pred"),length(in_raster))[4]
+  # name = gsub(".tif","", basename(in_raster))[4]
+
+####
+
+  gc()
+  
+  r = rast(in_raster)
+  
+  if(terra::nlyr(r)==16){
+    names(r) = c("b1","b2","b3","b4","b5","b6","b7","b8","ha1","ha2","ha3","ha4","ha5","ha6","ha7","ha8")
+  }else{
+    names(r) = c("C","B","G","Y","R","RE",
+                 "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
+                 "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+                 "NDVI","SAVI","EVI","NDAVI","WAVI")
+  }
+    
+  sx = crop2raster_loop(in_raster,
+                   in_seg,
+                   chunksize = 100000,
+                   write = F)
+  
+  s = sx %>% 
+    st_make_valid() %>% 
+    dplyr::filter(st_is(.,"POLYGON")) %>% 
+    dplyr::mutate(class = as.factor(NA))
+  
+  zx = exact_extract(r,s, c("min","max","mean","stdev"), progress=F, max_cells_in_memory = 100000)
+  
+    s2 = cbind(s,zx) %>%
+      drop_na(4)
+  
+  # tryCatch({
+  #   s2 = cbind(s,zx) %>%
+  #     drop_na(min.b1)
+  # }, error = function(e){
+  #   s2 = cbind(s,zx) %>%
+  #     drop_na(4)
+  # }
+  #   
+  # )
+  
+
+  model = readRDS(in_model)
+  
+  sx2 = s2 %>%
+    dplyr::select(-2) %>% 
+    dplyr::mutate(class = ranger::predictions(stats::predict(model, st_drop_geometry(.)))) %>% 
+    dplyr::group_by(class) %>% 
+    dplyr::summarise() %>% 
+    st_buffer(0) %>% 
+    st_make_valid() %>% 
+    st_write(dsn = paste0(out_path,"/",name,".gpkg"),
+             driver = "GPKG",
+             delete_dsn = T)
+
 }
 
-in.path.shp = dir(tiles_shp_output,".shp$",full.names=T)
 
-pc = rgdal::readOGR(in.path.shp[str_detect(in.path.shp,paste0(gsub(".tif.*","",unlist(str_split(in.path.r[j],"tiles/"))[2]),".shp"))])
-pc = rgeos::gBuffer(pc, byid=T, width=0)
-pc = raster::crop(pc,r)
-pc = pc[order(pc$DN),]
+predict_sav_dir = function(in_model = NULL, 
+                           in_raster = NULL,
+                           in_seg = NULL,
+                           out_path = NULL){
+  #### test ###
+  # in_raster = tar_read(Lv1_haralick)
+  # in_seg = tar_read(Lv1_seg)
+  # in_model = tar_read(trained_models)
+  # out_path = "output/Lv1_masks/"
+  # in_model = in_model
+  # in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$")
+  # in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp")
+  # out_path = paste0(output, "pred")
+  ####
+  if(dir.exists(out_path)==FALSE){
+    dir.create(out_path)
+  }
+  
+  unlink(paste0(out_path,"/*"))
+  
+  plan(sequential)
+  
+  future_mapply(predict_sav,
+                in_model = rep(in_model,length(in_raster)),
+                in_raster = in_raster,
+                in_seg = in_seg,
+                out_path = rep(out_path,length(in_raster)),
+                name = gsub(".tif","", basename(in_raster)),
+                future.seed = TRUE)
+  
+  return(dir(out_path, pattern=".gpkg$", full.names=T))
+  
+}
+```
 
 
-zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx"))
+```{r}
+classif_tiles = function(in_haralick,
+                         in_image,
+                         in_model,
+                         output,
+                         spatialr = "15",
+                         ranger = "0.03",
+                         thresh = "0.2"){
+  
+  # ### test ###
+  # in_model = tar_read(Lv2_training)[1]
+  # in_haralick = tar_read(Lv2_VIs)[1]
+  # in_image = dir(paste0(output,"lv1_products"), pattern=".tif$",full.names=T)
+  # output = "output/lv2_tiles/"
+  # i=1
+  # spatialr = "5"
+  # ranger = "0.001"
+  # thresh = "0.001"
+  # ###
+  
+  if(!dir.exists(paste0(output,"masks"))){
+    dir.create(paste0(output,"masks"))
+  }
+  
+  foreach(i = 1:length(in_image)) %do% {
+    
+    if(dir.exists(output)){
+      unlink(dir(output, full.names=T, ".tif"))
+    }else{
+      dir.create(output)
+    }
+    
+    if(dir.exists(paste0(output,"seg"))){
+      unlink(dir(paste0(output,"seg"), full.names=T))
+    }else{
+      dir.create(paste0(output,"seg"))
+    }
+    
+    if(dir.exists(paste0(output,"har"))){
+      unlink(dir(paste0(output,"har"), full.names=T))
+    }else{
+      dir.create(paste0(output,"har"))
+    }
+    
+    if(dir.exists(paste0(output,"pred"))){
+      unlink(dir(paste0(output,"pred"), full.names=T))
+    }else{
+      dir.create(paste0(output,"pred"))
+    }
+    
+    # make image tiles (terra)
+    # i=1
+    r = terra::rast(in_image[i]) %>% 
+      terra::mask(rast(in_image[i])[[1]])
+    
+    agg = r %>%
+      aggregate(., fact = 500, fun = min)
+    
+    tiles = r %>% 
+      makeTiles(.,
+                agg,
+                filename = paste0(output,"/_.tif"),
+                na.rm=T)
+    
+    
+    # make haralick tiles (terra)
+    
+    r = terra::rast(in_haralick[i]) %>% 
+      terra::mask(rast(in_haralick[i])[[1]])
+    
+    agg = r %>%
+      terra::aggregate(., fact = 500, fun = min)
+    
+    tiles = r %>% 
+      terra::makeTiles(.,
+                       agg,
+                       filename =  paste0(output,"/har/_.tif"),
+                       na.rm=T)
+    
+    # segment
+    
+    otb_seg_dir(input_source = dir(output,full.names=T,pattern=".tif$"),
+                output_path = paste0(output, "seg"),
+                filter.meanshift.spatialr = spatialr,   #default 5 # 5(too many objects) to 3 (too few objects) to 4 (unbalanced)
+                filter.meanshift.ranger   = ranger,  #default 15 # 0.01 (too many objects) to 0.05 (too few objects) to 0.02
+                filter.meanshift.thres    = thresh, #default 0.1
+                filter.meanshift.maxiter  = "100", #default 100
+                filter.meanshift.minsize  = "1",  #default 100
+                path = "C:\\OTB-7.1.0-Win64\\bin",
+                ramlimit = 16000)
+    
+    # predict
+    
+    predict_sav_dir(in_model = in_model[i],
+                    in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$"),
+                    in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp"),
+                    out_path = paste0(output, "pred"))
+    
+    # merge
+    
+    ctiles = dir(paste0(output,"pred"),full.names=T,pattern=".gpkg")
+    m = foreach(j = 1:length(ctiles), .combine = rbind) %do% {st_read(ctiles[j])}
+    
+    write = m %>%
+      # filter(!str_starts(class, "l_")) %>% 
+      st_write(.,driver="gpkg",paste0(output,"masks/",gsub(".tif",".gpkg",basename(in_image[i]))), delete_layer=T)
+    
+  }
+  
+  return(dir(paste0(output,"masks/"), full.names=T, pattern=".gpkg"))
 
-pc2=pc
-
-pc2@data = cbind(pc@data,zonal_s)
-
-pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:ncol(pc2@data)])),]
-pc2@data$class = "unknown"
-
-pc2@data$class = predict(rf, pc2@data, type="class")
-pc3 = pc
-pc3@data = merge(pc@data,pc2@data,all=T)
-
-rgdal::writeOGR(pc3,
-                dsn=paste0(out.shp),
-                driver="ESRI Shapefile",
-                layer=paste0("TC_",j),
-                overwrite_layer = T)
 }
 
 ```
+
+
+<!-- This function is used to perform classification within a tile, given a pre-trained random forest model. It can be parallelized. -->
+
+<!-- ```{r, eval=T} -->
+<!-- classify_tiles = function(j, -->
+<!--                           in.path.r = tiles_tif_output, -->
+<!--                           in.path.shp = tiles_shp_output, -->
+<!--                           out.path.shp.class = tiles_classif_output){ -->
+
+<!-- #   in.path.r = tiles_tif_output -->
+<!-- #   in.path.shp = tiles_shp_output -->
+<!-- #   out.path.shp.class = tiles_classif_output -->
+<!-- # j=278 -->
+
+<!-- in.path.r = dir(tiles_tif_output,".tif$",full.names=T) -->
+<!-- out.shp = paste0(paste0(out.path.shp.class,gsub(".tif.*","",sub(".*tiles/","",in.path.r))[j],".shp"))   -->
+
+<!-- r = raster::brick(in.path.r[j]) -->
+<!-- r = approxNA(r) -->
+
+<!-- if(nlayers(r)==17){ -->
+<!--   names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI") -->
+<!-- } else { -->
+<!--   names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","NDVI","SAVI","EVI","NDAVI","WAVI") -->
+<!-- } -->
+
+<!-- in.path.shp = dir(tiles_shp_output,".shp$",full.names=T) -->
+
+<!-- pc = rgdal::readOGR(in.path.shp[str_detect(in.path.shp,paste0(gsub(".tif.*","",unlist(str_split(in.path.r[j],"tiles/"))[2]),".shp"))]) -->
+<!-- pc = rgeos::gBuffer(pc, byid=T, width=0) -->
+<!-- pc = raster::crop(pc,r) -->
+<!-- pc = pc[order(pc$DN),] -->
+
+
+<!-- zonal_s = zonal.stats.small(x = pc, y = r, stats = c("minx","maxx","meanx","sdx")) -->
+
+<!-- pc2=pc -->
+
+<!-- pc2@data = cbind(pc@data,zonal_s) -->
+
+<!-- pc2@data = pc2@data[is.finite(rowSums(pc2@data[,2:ncol(pc2@data)])),] -->
+<!-- pc2@data$class = "unknown" -->
+
+<!-- pc2@data$class = predict(rf, pc2@data, type="class") -->
+<!-- pc3 = pc -->
+<!-- pc3@data = merge(pc@data,pc2@data,all=T) -->
+
+<!-- rgdal::writeOGR(pc3, -->
+<!--                 dsn=paste0(out.shp), -->
+<!--                 driver="ESRI Shapefile", -->
+<!--                 layer=paste0("TC_",j), -->
+<!--                 overwrite_layer = T) -->
+<!-- } -->
+
+<!-- ``` -->
 
 
 #2. land and water classification using the random.forest model  
