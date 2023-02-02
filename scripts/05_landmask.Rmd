@@ -22,7 +22,7 @@ Multiple images of the same region and satellite acquisition should be able to b
 
 ## 1.1. Libraries
 
-First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. 
 
 Some packages might require a valid installation of Rtools 4.0 or higher
 
@@ -40,32 +40,6 @@ library(doFuture)
 library(future.apply)
 library(ranger)
 
-```
-
-
-```{r, message=F, warning=F}
-# rm(list=ls()) ; gc()
-# 
-# # for velox installation 
-# # library(devtools)
-# # install_github("hunzikp/velox")
-# 
-# library(raster)
-# library(tidyverse)
-# library(sf)
-# library(sp)
-# library(rgdal)
-# library(parallel)
-# library(doParallel)
-# library(foreach)
-# library(snowfall)
-# library(GSIF) # might be an issue without an installation of Rtools
-# library(plyr) # used in snowfall env
-# library(rgeos) # used in snowfall env
-# library(gdalUtils) # used in snowfall env
-# library(spatialEco) # used in classification
-# library(randomForest) # used for classification
-# library(velox) # used for classification
 ```
 
 ## 1.2. Inputs / Outputs
@@ -230,7 +204,7 @@ rf_train = function(input_segments = segs2,
 # input_rasters = input_features[features_position]
 # out = model_output
   ####
-  gc()
+  
   s = st_read("../data/training_sets/land/2019_P001_T01.gpkg")
   r = rast(input_rasters)
   
@@ -246,7 +220,7 @@ rf_train = function(input_segments = segs2,
   
   mx = ranger::ranger(as.factor(class) ~ ., data = st_drop_geometry(s2[,-1]))
   
-  saveRDS(mx, paste0(out,basename(input_rasters),".RDS"))
+  saveRDS(mx, paste0(out,"/",basename(input_rasters),".RDS"))
   
   return(mx)
 }
@@ -264,16 +238,14 @@ predict_sav = function(in_model = NULL,
   
 # test ###
 
-  # in_model = rep(in_model,length(in_raster))[4]
-  # in_raster = dir(paste0(output,"har"), full.names=T)[4]
-  # in_seg = dir(paste0(output,"seg"), full.names=T,pattern=".shp$")[4]
-  # out_path = rep(paste0(output,"pred"),length(in_raster))[4]
-  # name = gsub(".tif","", basename(in_raster))[4]
+  # in_model = in_model
+  # in_raster = in_raster[1]
+  # in_seg = in_seg[1]
+  # out_path = out_path
+  # name = gsub(".tif","", basename(in_raster)[1])
 
 ####
 
-  gc()
-  
   r = rast(in_raster)
   
   if(terra::nlyr(r)==16){
@@ -332,14 +304,11 @@ predict_sav_dir = function(in_model = NULL,
                            in_seg = NULL,
                            out_path = NULL){
   #### test ###
-  # in_raster = tar_read(Lv1_haralick)
-  # in_seg = tar_read(Lv1_seg)
-  # in_model = tar_read(trained_models)
-  # out_path = "output/Lv1_masks/"
-  # in_model = in_model
-  # in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$")
-  # in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp")
-  # out_path = paste0(output, "pred")
+# in_model = in_model[i]
+# in_raster = dir(paste0(output,"har"), full.names=T, pattern=".tif$")
+# in_seg = dir(paste0(output,"seg"),full.names=T,pattern=".shp")
+# out_path = paste0(output, "pred")
+
   ####
   if(dir.exists(out_path)==FALSE){
     dir.create(out_path)
@@ -440,14 +409,14 @@ classif_tiles = function(in_haralick,
                          thresh = "0.2"){
   
   # ### test ###
-
-in_haralick = input_features[feature_position]
-in_image = input_destripe[destripe_position]
-in_model = m # or select the right output from 2.1. Train
-output = landmask_output
-spatialr = "15"
-ranger = "0.03"
-thresh = "0.2"
+# 
+# in_haralick = input_features[feature_position]
+# in_image = input_destripe[destripe_position]
+# in_model = dir(model_output, full.names=T, pattern=".RDS$")[1] # or select the right output from 2.1. Train
+# output = landmask_output
+# spatialr = "15"
+# ranger = "0.03"
+# thresh = "0.2"
 
   # ###
   
@@ -561,13 +530,14 @@ m = rf_train(input_segments = training_objects[training_position],
 ## 2.2. Classify
 
 ```{r}
-classif_tiles(in_haralick = input_features[feature_position],
-              in_image = input_destripe[destripe_position],
-              in_model = m, # or select the right output from 2.1. Train
-              output = landmask_output,
-              spatialr = "15",
-              ranger = "0.03",
-              thresh = "0.2"
+classif_tiles(
+  in_haralick = input_features[feature_position],
+  in_image = input_destripe[destripe_position],
+  in_model = dir(model_output, full.names=T, pattern=".RDS$"),
+  output = landmask_output,
+  spatialr = "15",
+  ranger = "0.03",
+  thresh = "0.2"
               )
+
 ```
-### WORK ON LINE 525
