@@ -206,7 +206,7 @@ rf_train = function(input_segments = segs2,
 # out = model_output
   ####
   
-  s = st_read("../data/training_sets/land/2019_P001_T01.gpkg")
+  s = st_read(input_segments)
   r = rast(input_rasters)
   
   names(r) = c("C","B","G","Y","R","RE",
