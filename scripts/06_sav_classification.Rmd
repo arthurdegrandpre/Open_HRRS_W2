@@ -1,20 +1,30 @@
 ---
-title: "05_landmask"
+title: "06_classification"
 author: "Arthur de Grandpré"
-date: '2023-01-24'
-output: html_document
+date: "05 feb 2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
 ---
 
 
 # Intro
 
-This is the fifth script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.
+This is the sixth (last) script of the Open HRRS W2 workflow for open-source high-resolution remote sensing of vegetation cover optically complex waters.
 
-This script is used to perform a first classification to separate terrestrial pixels from aquatic pixels. This is an optional step if the image does not require deglinting, but it is critical if the image does require deglinting. Since deglinting is not fully implemented in the workflow yet, a simple landmask that keeps floating and emerging vegetation is acceptable. For a full deglinting of water pixels, a mask including all objects that could generate a NIR signature, such as dense and high vegetation canopy is necessary.  
+This script is used to perform iterative random forest classifications to classify aquatic vegetation classes from other features, resulting in a vegetation cover map. The performance of this step is highly dependent on the quality of the training sets, the segmentation, and the array of features used as predictors in the random forest.
 
+Since actual ground validation is rare, expert visual validation is used both for training and model validation. While this is not an optimal solution, existing validation data could be used at any step to enhance results. Satisfactory classification performance is attained when the expert estimates the error does not compromise the classification objectives.  
+
+Quantitative estimates of the accuracy can be obtained through multiple methods :  
+1. Separation of the training set in multiples parts : one for predicting, and the other for validation (usually 70 % / 30 % respectively).  
+2. Using the out-of-bag confusion matrix from the random forest.  
+3. Applying random resampling of the training set to estimate it's robustness.
+  
 This step requires manual work in the form of constructed training sets (multipolygon files, as shp or gpkg) built from QGIS or ArcGIS.  
 
-It treats one image at a time, in order to allow for selection of the right training sets.
+It treats one image at a time, in order to allow for selection of the right training sets, and the tweaking of some parameters.
 
 Multiple images of the same region and satellite acquisition should be able to be classified based on the same classifier training.
 
@@ -22,80 +32,112 @@ Multiple images of the same region and satellite acquisition should be able to b
 
 ## 1.1. Libraries
 
-First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = T)* function. 
+First, load the required libraries. They can be installed using the *install.packages("package.name", dependencies = TRUE)* function. The velox package requires the devtools library and a special function to download it from Github instead of CRAN.
 
-Some packages might require a valid installation of Rtools 4.0 or higher
-
-```{r, message=F, warning=F}
+```{r setup}
 rm(list=ls()) ; gc()
+otb.path  = "C:\\OTB-7.2.0-Win64\\bin"
+otb.ramlimit = 16000
 
-library(dplyr)
-library(tidyr)
+library(raster)
+library(tidyverse)
+library(landscapemetrics)
 library(sf)
 library(terra)
 library(exactextractr)
-library(foreach)
+library(ranger)
 library(future)
 library(doFuture)
 library(future.apply)
-library(ranger)
-
 ```
 
 ## 1.2. Inputs / Outputs
 
-```{r}
-#Parallel setup
-registerDoFuture()
-plan(multisession)
+note : I usually start by transferring "ready" images in a folder that will be used as input, preventing some messy image selection.
 
-#OTB setup
-otb.path  = "C:\\OTB-7.2.0-Win64\\bin" ### according to installation path and version (must be adjusted and use the double backslash!)
+```{r, eval=T}
+input_rasters = normalizePath(dir("../data/work/land_classification_output/water_output/",
+         pattern = ".tif$",
+         full.names = T,
+         recursive = F))
 
-#input
-input_destripe = dir("../data/work/destripe_output/",
-                     full.names=T,
-                     pattern=".tif$")
+i = 1 # raster of interest position
 
-input_features = dir("../data/work/segmentation_output/features/",
-                    full.names=T,
-                    pattern=".tif$")
-input_training = "../data/training_sets/land/" #location of training sets.
-training_objects = dir(input_training, 
-                       full.names=T,
-                       pattern = ".gpkg$")
-input_destripe
-input_features
-training_objects
+input_training = dir("../data/training_sets/water",
+         pattern = ".gpkg$",
+         full.names = T)
 
-# index of files to use
-destripe_position = 1
-feature_position = 1
-training_position = 1
+input_t_obj = input_training[1]
 
-# output
-model_output = normalizePath(paste0(input_training,"/models/"))
-landmask_output = "../data/work/land_classification_output/"
-water_output = paste0(landmask_output,"/water_output/")
+
+output_dir = normalizePath("../data/work/results/")
+segmentation_dir = normalizePath(paste0(output_dir,"/segmentation/"))
+features_dir = normalizePath(paste0(output_dir,"/features/"))
+tiles_tif_output = paste0(output_dir,"/tiles/")
+tiles_tif_f_output = paste0(output_dir,"/tiles_f/")
+tiles_shp_output = paste0(tiles_tif_output,"/segmentation/")
+tiles_classif_output = paste0(tiles_tif_output,"/classification/")
+classified_output = paste0(output_dir,"/classified/")
+
+rf_model_output = "../data/rf_models/"
 ```
 
-create the directories
-
 ```{r}
-for(i in c(model_output,
-           landmask_output,
-           water_output)){
-  if(file.exists(i)){}else{
-    dir.create(i)}
+for(k in c(output_dir,
+           segmentation_dir,
+           features_dir,
+           tiles_tif_output,
+           tiles_shp_output,
+           tiles_tif_f_output,
+           tiles_classif_output,
+           rf_model_output,
+           classified_output)){
+  if(file.exists(k)){}else{
+    dir.create(k)}
 }
-
-# file.copy(from=boa_input, to=deglint_output, recursive=F, overwrite=F) # so all files are still within the same folder, even if they are not all corrected.
-
 ```
+
 
 ## 1.3. Define functions
+```{r define feature extract function, eval=T}
 
-### Segmentation
+feature.HaralickTextureExtraction <- function(
+                           raster.in = "",
+                           out.path  = "",
+                           name      = "",
+                           channel = "1",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "1", #input image maximum value
+                           parameters.xrad = "2", #xradius in pixels
+                           parameters.yrad = "2", #yradisu in pixels
+                           parameters.xoff = "1", #xoffset in pixels
+                           parameters.yoff = "1", #yoffset in pixels
+                           parameters.nbbin = "8" # bins per axis of histogram
+                           
+                           ){
+  
+# Set configuration      
+conf <- paste("-RAM ",otb.ramlimit,
+              "-in",raster.in,
+              "-channel",channel,
+              "-texture",texture,
+              "-parameters.min",parameters.min,
+              "-parameters.max",parameters.max,
+              "-parameters.xrad",parameters.xrad,
+              "-parameters.yrad",parameters.yrad,
+              "-parameters.xoff",parameters.xoff,
+              "-parameters.yoff",parameters.yoff,
+              "-parameters.nbbin",parameters.nbbin,
+              "-out",paste0(out.path,"/",name)
+              )
+  
+  shell(paste("pushd ",otb.path,"&& otbcli_HaralickTextureExtraction ",conf))
+
+write.table(x = conf,file = paste(out.path,"/",name,"_conf.txt",sep=""),row.names = F, col.names = F)
+}
+```
+
 
 ```{r define segmentation function, eval=T}
 otb_seg_file = function(raster.in = NULL,
@@ -194,6 +236,82 @@ otb_seg_dir = function(input_source = NULL,
 
 ```
 
+### Create feature stack
+
+```{r}
+#input raster
+
+create_feature_stack = function(input_rasters = input_rasters, index = i){
+  input_raster = input_rasters[index]
+
+if(file.exists((paste0(features_dir,"/haralick")))){}else(dir.create((paste0(features_dir,"/haralick"))))
+
+r = brick(input_raster)
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",input_raster),
+                           out.path  = paste0(gsub("/","\\\\",features_dir),"\\haralick"),
+                           name      = paste0("n_ht_",str_split(gsub(".*\\\\","",input_raster),"\\.")[[1]][1]),
+                           channel = "8",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "0.3", #input image maximum value
+                           parameters.xrad = "5", #xradius in pixels
+                           parameters.yrad = "5", #yradius in pixels
+                           parameters.xoff = "10", #xoffset in pixels
+                           parameters.yoff = "10", #yoffset in pixels
+                           parameters.nbbin = "64" # bins per axis of histogram
+                           )
+
+feature.HaralickTextureExtraction(
+                           raster.in = gsub("/","\\\\",input_raster),
+                           out.path  = paste0(gsub("/","\\\\",features_dir),"\\haralick"),
+                           name      = paste0("b_ht_",str_split(gsub(".*\\\\","",input_raster),"\\.")[[1]][1]),
+                           channel = "2",   #default 1, selected channel index in input image
+                           texture   = "simple",  #default simple, also available "advanced" or "higher"
+                           parameters.min = "0", #input image minimum value
+                           parameters.max = "0.3", #input image maximum value
+                           parameters.xrad = "5", #xradius in pixels
+                           parameters.yrad = "5", #yradisu in pixels
+                           parameters.xoff = "10", #xoffset in pixels
+                           parameters.yoff = "10", #yoffset in pixels
+                           parameters.nbbin = "64" # bins per axis of histogram
+                           )
+  
+  
+
+features = c("\\haralick")
+
+for(j in seq_along(features)){
+  r = addLayer(r, brick(dir(paste0(features_dir,features[j]),full.names=TRUE, pattern="n_??_(.*).tif$")[i]))
+  r = addLayer(r, brick(dir(paste0(features_dir,features[j]),full.names=TRUE, pattern="b_??_(.*).tif$")[i]))
+  }
+  
+  L = 0.5
+  
+  if(nlayers(r)==20){
+  r$ndvi =  (r[[4]]-r[[3]]) / (r[[4]]+r[[3]])
+  r$savi =  (1+L)*((r[[4]]-r[[3]]) / (r[[4]]+r[[3]]+L))
+  r$evi  =  2.5*(((r[[4]]-r[[3]]) / (r[[4]]+6*r[[3]]-7.5*r[[1]]+1)))
+  r$ndavi=  (r[[4]]-r[[1]]) / (r[[4]]+r[[1]])
+  r$wavi =  (1+L)*((r[[4]]-r[[1]]) / (r[[4]]+r[[1]]+L))
+  names(r) = c("B","G","R","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+  }else{
+  r$ndvi =  (r[[8]]-r[[4]]) / (r[[8]]+r[[4]])
+  r$savi =  (1+L)*((r[[8]]-r[[4]]) / (r[[8]]+r[[4]]+L))
+  r$evi  =  2.5*(((r[[8]]-r[[4]]) / (r[[8]]+6*r[[4]]-7.5*r[[2]]+1)))
+  r$ndavi=  (r[[8]]-r[[2]]) / (r[[8]]+r[[2]])
+  r$wavi =  (1+L)*((r[[8]]-r[[2]]) / (r[[8]]+r[[2]]+L))
+  names(r) = c("C","B","G","Y","R","RE","N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8","BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8","NDVI","SAVI","EVI","NDAVI","WAVI")
+  }
+  
+  writeRaster(r, paste0(features_dir,"\\",str_split(gsub(".*\\\\","",basename(input_raster)),"\\.")[[1]][1],".tif"), overwrite=T)
+
+}
+
+```
+
+
 ### Train
 
 ```{r}
@@ -211,7 +329,7 @@ rf_train = function(input_segments = segs2,
   
   names(r) = c("C","B","G","Y","R","RE",
                "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
-               # "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+               "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
                "NDVI","SAVI","EVI","NDAVI","WAVI")
   
   zonal_s = exact_extract(r,s, c("min","max","mean","stdev"), progress=F)
@@ -254,7 +372,7 @@ predict_sav = function(in_model = NULL,
   }else{
     names(r) = c("C","B","G","Y","R","RE",
                  "N1","N","NH1","NH2","NH3","NH4","NH5","NH6","NH7","NH8",
-                 # "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
+                 "BH1","BH2","BH3","BH4","BH5","BH6","BH7","BH8",
                  "NDVI","SAVI","EVI","NDAVI","WAVI")
   }
     
@@ -512,53 +630,42 @@ classif_tiles = function(in_haralick,
   return(dir(paste0(output,"masks/"), full.names=T, pattern=".gpkg"))
 
 }
-
-plot(m)
-
 ```
 
+# 2. Processing
 
-
-# 2. Apply land masking
-
-## 2.1. Train
-
+## Stack
 ```{r}
-m = rf_train(input_segments = training_objects[training_position],
-             input_rasters = input_features[feature_position],
-             out = model_output
-             )
+create_feature_stack(input_raster = input_rasters, index = 1)
 ```
 
-## 2.2. Classify
+## Train
+```{r}
+# the crop is optional
+# vect(input_t_obj) %>% 
+#   terra::crop(rast(input_rasters[i])) %>% 
+#   terra::writeVector(paste0("../data/training_sets/water/","crop_",basename(input_t_obj)))
 
+# make sure to select the right training set
+m = rf_train(input_segments = input_training[2],
+             input_rasters = dir(features_dir, full.names=T, pattern=".tif$")[i],
+             out = rf_model_output
+             )
+
+```
+
+## Predict
 ```{r}
 classif_tiles(
-  in_haralick = input_features[feature_position],
-  in_image = input_destripe[destripe_position],
-  in_model = dir(model_output, full.names=T, pattern=".RDS$"),
-  output = landmask_output,
-  spatialr = "15",
-  ranger = "0.03",
-  thresh = "0.2"
+  in_haralick = dir(features_dir, full.names=T, pattern=".tif$")[i],
+  in_image = input_rasters[i],
+  in_model = dir(rf_model_output, full.names=T, pattern=".RDS$")[1],
+  output = classified_output,
+  spatialr = "5",
+  ranger = "0.001",
+  thresh = "0.0005"
               )
 
+st_read(dir(paste0(classified_output,"/masks/"), full.names=T)[1]) %>% 
+  plot()
 ```
-
-## 2.3. Mask
-
-```{r}
-
-mask = st_read(dir(paste0(landmask_output,"/masks"),pattern=".gpkg$",full.names=T)[destripe_position]) %>% 
-  filter(str_detect(class, "^w")) %>% 
-  vect()
-
-image = rast(input_destripe[destripe_position])
-
-water_only = image %>% 
-  mask(mask) %>% 
-  crop(mask) %>% 
-  terra::writeRaster(paste0(water_output,"/",basename(input_destripe[destripe_position])))
-
-```
-

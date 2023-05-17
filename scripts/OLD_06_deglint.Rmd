@@ -9,7 +9,7 @@ output: html_document
 
 This is an incomplete script of the Open HRRS W2 workflow for open source high resolution remote sensing of vegetation cover optically complex waters.  
   
-This script comes after land masking and will perform empirical deglinting of water pixels, based on the Hochberg 2003 method. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.  
+This script comes after land masking and will perform empirical deglinting of water pixels, based on the Hochberg 2003 method. In order to perform correctly, all non glint NIR sources should be masked out during the previous step. If it is not the case, non glint NIR signal will be wrongly corrected.
   
 A manually delineated polygon of an area of optically deep water is required to run this script.  
 
@@ -23,28 +23,18 @@ First, load the required libraries. They can be installed using the *install.pac
 
 ## 1.1. Libraries
 ```{r, message=F, warning=F}
-# for velox installation 
-# library(devtools)
-# install_github("hunzikp/velox")
-
 
 otb.path  = "C:\\OTB-7.2.0-Win64\\bin"
-library(raster)
+
 library(tidyverse)
 library(sf) 
-library(sp)
-library(rgdal) 
-library(parallel)
-library(doParallel)
+library(terra)
+library(future)
+library(doFuture)
+library(exactextractr)
+library(ranger)
 library(foreach)
-library(snowfall)
-library(GSIF)
-library(plyr) # used in snowfall env
-library(rgeos) # used in snowfall env
-library(gdalUtils) # used in snowfall env
-library(spatialEco) # used in classification
-library(randomForest) # used for classification
-library(velox) # used for classification
+
 ```
 
 
@@ -65,7 +55,6 @@ for(i in c(output_dir)){
   if(file.exists(i)){}else{
     dir.create(i)}
 }
-
 ```
 
 
